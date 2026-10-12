@@ -1,0 +1,9 @@
+
+ RUN  v5.0.3 /work
+
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 2 skipped (3)
+   Start at  15:16:27
+   Duration  66ms (transform 60%, import 25%, worker 9%, tests 6%)
+

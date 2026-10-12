@@ -1,0 +1,14 @@
+
+/work/lint/a.js
+  1:7   error  'unused' is assigned a value but never used                      no-unused-vars
+  2:1   error  'foo' is not defined                                             no-undef
+  3:5   error  Expected a conditional expression and instead saw an assignment  no-cond-assign
+  3:5   error  Unexpected constant condition                                    no-constant-condition
+  3:5   error  'a' is not defined                                               no-undef
+  3:12  error  Empty block statement                                            no-empty
+
+/work/lint/b.js
+  1:7  error  'z' is assigned a value but never used  no-unused-vars
+
+✖ 7 problems (7 errors, 0 warnings)
+

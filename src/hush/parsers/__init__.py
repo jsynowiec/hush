@@ -1,0 +1,83 @@
+"""Tool-specific parsers with a safety net.
+
+A tool parser gives the best explanation. A tool can change its wording at any release, so a
+parser's answer is only trusted when the files it names exist. When it finds nothing valid, the
+other tool parsers are tried (this also handles `pnpm run <script>` and `make`), then the
+tool-agnostic extractor, then the tail of the output.
+"""
+
+import re
+from collections.abc import Iterator, Mapping
+from dataclasses import dataclass
+
+from hush import extract
+from hush.extract import Failure, PathExists
+from hush.parsers import (
+    biome_parser,
+    diagnostics_parser,
+    eslint_parser,
+    mypy_parser,
+    prettier_parser,
+    pytest_parser,
+    tsc_parser,
+    vite_parser,
+    vitest_parser,
+)
+from hush.parsers.base import Parser
+
+PARSERS: Mapping[str, Parser] = {
+    "pytest": pytest_parser.parse,
+    "vitest": vitest_parser.parse,
+    "ruff": diagnostics_parser.parse,
+    "ty": diagnostics_parser.parse,
+    "mypy": mypy_parser.parse,
+    "tsc": tsc_parser.parse,
+    "biome": biome_parser.parse,
+    "vite": vite_parser.parse,
+    "eslint": eslint_parser.parse,
+    "prettier": prettier_parser.parse,
+}
+
+# `(?<!\d)` keeps the scan linear on long digit runs.
+_PASSED = re.compile(r"(?<!\d)(\d+) passed\b")
+_LINE_SUFFIX = re.compile(r":\d+$")
+
+
+@dataclass(frozen=True, slots=True)
+class Diagnosis:
+    failures: tuple[Failure, ...]
+    # Failures a tool parser found whose file could not be located. They are counted, not shown.
+    unlocated: int = 0
+
+
+def parse(tool: str | None, text: str, path_exists: PathExists, detail_limit: int | None = None) -> Diagnosis:
+    for parser in _parsers_to_try(tool):
+        found = parser(text).failures
+        valid = tuple(f for f in found if _names_existing_file(f, path_exists))
+        if valid:
+            return Diagnosis(valid, unlocated=len(found) - len(valid))
+    return Diagnosis(extract.extract_failures(text, path_exists, detail_limit))
+
+
+def passed_count(tool: str | None, text: str) -> int | None:
+    parser = PARSERS.get(tool or "")
+    specific = parser(text).test_count if parser else None
+    if specific is not None:
+        return specific
+    matches = _PASSED.findall(text)
+    return int(matches[-1]) if matches else None
+
+
+def _parsers_to_try(tool: str | None) -> Iterator[Parser]:
+    first = PARSERS.get(tool or "")
+    if first:
+        yield first
+    yield from (p for p in dict.fromkeys(PARSERS.values()) if p is not first)
+
+
+def _names_existing_file(failure: Failure, path_exists: PathExists) -> bool:
+    """The whole path part must exist, so text that merely starts with a real path is rejected."""
+    if failure.location is None:
+        return False
+    path = failure.location.split("::")[0]
+    return path_exists(_LINE_SUFFIX.sub("", path))

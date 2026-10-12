@@ -1,0 +1,57 @@
+Installed 1 package in 3ms
+I001 [*] Import block is un-sorted or un-formatted
+ --> pkg/__init__.py:1:1
+  |
+1 | import os,sys
+  | ^^^^^^^^^^^^^
+2 | def add(a:int,b:int)->int:
+3 |     return a+b
+  |
+help: Organize imports
+  |
+  - import os,sys
+1 + import os
+2 + import sys
+3 +
+4 +
+5 | def add(a:int,b:int)->int:
+  |
+
+F401 `os` imported but unused
+ --> pkg/__init__.py:1:8
+  |
+1 | import os,sys
+  |        ^^
+2 | def add(a:int,b:int)->int:
+3 |     return a+b
+  |
+help: Remove unused import
+
+F401 `sys` imported but unused
+ --> pkg/__init__.py:1:11
+  |
+1 | import os,sys
+  |           ^^^
+2 | def add(a:int,b:int)->int:
+3 |     return a+b
+  |
+help: Remove unused import
+
+I001 [*] Import block is un-sorted or un-formatted
+ --> tests/test_a.py:1:1
+  |
+1 | from pkg import add
+  | ^^^^^^^^^^^^^^^^^^^
+2 | def test_ok():
+3 |     assert add(1,2)==3
+  |
+help: Organize imports
+  |
+1 | from pkg import add
+2 +
+3 +
+4 | def test_ok():
+  |
+
+Found 4 errors.
+[*] 2 fixable with `--fix`.

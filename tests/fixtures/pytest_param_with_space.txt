@@ -1,0 +1,25 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.7, pytest-9.1.1, pluggy-1.6.0
+rootdir: /private/work
+collected 2 items
+
+test_param.py F.                                                         [100%]
+
+=================================== FAILURES ===================================
+_______________________________ test_value[a b] ________________________________
+
+value = 'a b'
+
+    @pytest.mark.parametrize("value", ["a b", "c"])
+    def test_value(value):
+>       assert value == "c", "value was not c"
+E       AssertionError: value was not c
+E       assert 'a b' == 'c'
+E         
+E         - c
+E         + a b
+
+test_param.py:6: AssertionError
+=========================== short test summary info ============================
+FAILED test_param.py::test_value[a b] - AssertionError: value was not c
+========================= 1 failed, 1 passed in 0.01s ==========================

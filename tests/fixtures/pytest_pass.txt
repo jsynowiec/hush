@@ -1,0 +1,9 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.7, pytest-9.1.1, pluggy-1.6.0
+rootdir: /work
+configfile: pyproject.toml
+collected 3 items / 2 deselected / 1 selected
+
+tests/test_a.py .                                                        [100%]
+
+======================= 1 passed, 2 deselected in 0.00s ========================

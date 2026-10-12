@@ -1,0 +1,35 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.7, pytest-9.1.1, pluggy-1.6.0
+rootdir: /private/work
+collected 2 items
+
+test_mix.py EF                                                           [100%]
+
+==================================== ERRORS ====================================
+_____________________ ERROR at setup of test_uses_fixture ______________________
+
+    @pytest.fixture
+    def boom():
+>       raise RuntimeError("fixture exploded")
+E       RuntimeError: fixture exploded
+
+test_mix.py:6: RuntimeError
+=================================== FAILURES ===================================
+______________________________ test_calls_helper _______________________________
+
+    def test_calls_helper():
+>       helper()
+
+test_mix.py:18: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def helper():
+>       assert False, "helper says no"
+E       AssertionError: helper says no
+E       assert False
+
+test_mix.py:10: AssertionError
+=========================== short test summary info ============================
+FAILED test_mix.py::test_calls_helper - AssertionError: helper says no
+ERROR test_mix.py::test_uses_fixture - RuntimeError: fixture exploded
+========================== 1 failed, 1 error in 0.01s ==========================

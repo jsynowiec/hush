@@ -1,0 +1,83 @@
+src/math.ts:5:5 lint/correctness/noUnusedVariables  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ! This variable unused is unused.
+  
+    3 │ }
+    4 │ export const bad: number = "x";
+  > 5 │ var unused = 1;
+      │     ^^^^^^
+    6 │ 
+  
+  i Unused variables are often the result of typos, incomplete refactors, or other sources of bugs.
+  
+  i Unsafe fix: If this is intentional, prepend unused with an underscore.
+  
+    3 3 │   }
+    4 4 │   export const bad: number = "x";
+    5   │ - var·unused·=·1;
+      5 │ + var·_unused·=·1;
+    6 6 │   
+  
+
+src/math.test.ts:3:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × This statement must be preceded by a blank line. Add a newline before this statement.
+  
+    1 │ import { expect, test } from "vitest";
+    2 │ import { add } from "./math";
+  > 3 │ test("ok", () => { expect(add(1, 2)).toBe(3); });
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    4 │ test("dup", () => {
+    5 │   const effects = ["a", "a"];
+  
+  i Safe fix: Organize imports and exports (Biome)
+  
+    1  1 │   import { expect, test } from "vitest";
+    2  2 │   import { add } from "./math";
+       3 │ + 
+    3  4 │   test("ok", () => { expect(add(1, 2)).toBe(3); });
+    4  5 │   test("dup", () => {
+  
+
+src/math.test.ts format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+    1  1 │   import { expect, test } from "vitest";
+    2  2 │   import { add } from "./math";
+    3    │ - test("ok",·()·=>·{·expect(add(1,·2)).toBe(3);·});
+       3 │ + test("ok",·()·=>·{
+       4 │ + → expect(add(1,·2)).toBe(3);
+       5 │ + });
+    4  6 │   test("dup", () => {
+    5    │ - ··const·effects·=·["a",·"a"];
+    6    │ - ··expect(effects.length,·"expected·one·side·effect").toBe(1);
+       7 │ + → const·effects·=·["a",·"a"];
+       8 │ + → expect(effects.length,·"expected·one·side·effect").toBe(1);
+    7  9 │   });
+    8    │ - test("eq",·()·=>·{·expect(add(1,·1)).toEqual(3);·});
+      10 │ + test("eq",·()·=>·{
+      11 │ + → expect(add(1,·1)).toEqual(3);
+      12 │ + });
+    9 13 │   
+  
+
+src/math.ts format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+    1 1 │   export function add(a: number, b: number): number {
+    2   │ - ··return·a·+·b;
+      2 │ + → return·a·+·b;
+    3 3 │   }
+    4 4 │   export const bad: number = "x";
+  
+
+Checked 3 files in 6ms. No fixes applied.
+Found 3 errors.
+Found 1 warning.
+check ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Some errors were emitted while running checks.
+  
+

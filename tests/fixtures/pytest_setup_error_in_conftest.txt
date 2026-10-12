@@ -1,0 +1,19 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.7, pytest-9.1.1, pluggy-1.6.0
+rootdir: /private/work
+collected 1 item
+
+c/test_c.py E                                                            [100%]
+
+==================================== ERRORS ====================================
+___________________________ ERROR at setup of test_c ___________________________
+
+    @pytest.fixture
+    def boom():
+>       raise RuntimeError("conftest exploded")
+E       RuntimeError: conftest exploded
+
+c/conftest.py:6: RuntimeError
+=========================== short test summary info ============================
+ERROR c/test_c.py::test_c - RuntimeError: conftest exploded
+=============================== 1 error in 0.01s ===============================

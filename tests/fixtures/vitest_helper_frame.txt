@@ -1,0 +1,35 @@
+
+ RUN  v5.0.4 /work
+
+ ❯ src/a.test.ts (1 test | 1 failed) 4ms
+   ❯ suite (1)
+     × uses helper 3ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/a.test.ts > suite > uses helper
+AssertionError: expected 1 to be 2 // Object.is equality
+
+- Expected
++ Received
+
+- 2
++ 1
+
+ ❯ src/helpers.ts:4:17
+      2|
+      3| export default (value: number): void => {
+      4|   expect(value).toBe(2);
+       |                 ^
+      5| };
+      6|
+ ❯ src/a.test.ts:6:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  16:46:41
+   Duration  83ms (import 37%, transform 26%, tests 25%, worker 13%)
+

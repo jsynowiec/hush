@@ -1,0 +1,50 @@
+
+ RUN  v5.0.4 /work
+
+ ❯ |unit| src/bad.test.ts (0 test)
+ ❯ |unit| src/a.test.ts (1 test | 1 failed) 3ms
+   ❯ suite (1)
+     × uses helper 3ms
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |unit| src/bad.test.ts [ src/bad.test.ts ]
+Error: Cannot find module './does-not-exist' imported from /work/src/bad.test.ts
+ ❯ src/bad.test.ts:2:1
+      1| import { test } from "vitest";
+      2| import { nothing } from "./does-not-exist";
+       | ^
+      3|
+      4| test("never runs", () => {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |unit| src/a.test.ts > suite > uses helper
+AssertionError: expected 1 to be 2 // Object.is equality
+
+- Expected
++ Received
+
+- 2
++ 1
+
+ ❯ check src/helpers.ts:4:17
+      2|
+      3| export function check(value: number): void {
+      4|   expect(value).toBe(2);
+       |                 ^
+      5| }
+      6|
+ ❯ src/a.test.ts:6:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  1 failed (1)
+   Start at  16:47:07
+   Duration  68ms (import 30%, worker 24%, transform 23%, tests 22%, environment 1%)
+

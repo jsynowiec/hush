@@ -1,0 +1,5 @@
+Downloading mypy (13.6MiB)
+Downloading ast-serialize (1.2MiB)
+Installed 6 packages in 46ms
+pkg/__init__.py:5: error: Incompatible return value type (got "str", expected "int")  [return-value]
+Found 1 error in 1 file (checked 1 source file)

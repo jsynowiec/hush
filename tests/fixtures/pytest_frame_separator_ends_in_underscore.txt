@@ -1,0 +1,26 @@
+============================== test session starts ==============================
+platform darwin -- Python 3.14.7, pytest-9.1.1, pluggy-1.6.0
+rootdir: /private/work
+collected 1 item
+
+test_mix.py F                                                             [100%]
+
+=================================== FAILURES ====================================
+_______________________________ test_calls_helper _______________________________
+
+    def test_calls_helper():
+        x = 1
+>       helper()
+
+test_mix.py:6: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    def helper():
+>       assert 1 == 2, "boom"
+E       AssertionError: boom
+E       assert 1 == 2
+
+test_mix.py:2: AssertionError
+============================ short test summary info ============================
+FAILED test_mix.py::test_calls_helper - AssertionError: boom
+=============================== 1 failed in 0.01s ===============================

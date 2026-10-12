@@ -1,0 +1,24 @@
+
+ RUN  v5.0.4 /work
+
+ ❯ src/bad.test.ts (0 test)
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/bad.test.ts [ src/bad.test.ts ]
+Error: Cannot find module './does-not-exist' imported from /work/src/bad.test.ts
+ ❯ src/bad.test.ts:2:1
+      1| import { test } from "vitest";
+      2| import { nothing } from "./does-not-exist";
+       | ^
+      3|
+      4| test("never runs", () => {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  no tests
+   Start at  16:46:51
+   Duration  84ms (worker 97%, environment 3%)
+

@@ -1,0 +1,52 @@
+
+ RUN  v5.0.3 /work
+
+ ❯ src/math.test.ts (3 tests | 2 failed) 3ms
+   × dup 2ms
+   × eq 0ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/math.test.ts > dup
+AssertionError: expected one side effect: expected 2 to be 1 // Object.is equality
+
+- Expected
++ Received
+
+- 1
++ 2
+
+ ❯ src/math.test.ts:6:54
+      4| test("dup", () => {
+      5|   const effects = ["a", "a"];
+      6|   expect(effects.length, "expected one side effect").toBe(1);
+       |                                                      ^
+      7| });
+      8| test("eq", () => { expect(add(1, 1)).toEqual(3); });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  src/math.test.ts > eq
+AssertionError: expected 2 to deeply equal 3
+
+- Expected
++ Received
+
+- 3
++ 2
+
+ ❯ src/math.test.ts:8:38
+      6|   expect(effects.length, "expected one side effect").toBe(1);
+      7| });
+      8| test("eq", () => { expect(add(1, 1)).toEqual(3); });
+       |                                      ^
+      9|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 1 passed (3)
+   Start at  15:16:27
+   Duration  85ms (transform 53%, import 21%, tests 17%, worker 9%)
+

@@ -1,0 +1,2 @@
+src/bad.ts(1,22): error TS2307: Cannot find module './does-not-exist' or its corresponding type declarations.
+src/math.ts(4,14): error TS2322: Type 'string' is not assignable to type 'number'.

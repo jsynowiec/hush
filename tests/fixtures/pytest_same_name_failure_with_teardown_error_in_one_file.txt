@@ -1,0 +1,41 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.7, pytest-9.1.1, pluggy-1.6.0
+rootdir: /private/work
+collected 2 items
+
+a/test_a.py FE                                                           [ 50%]
+b/test_b.py F                                                            [100%]
+
+==================================== ERRORS ====================================
+________________________ ERROR at teardown of test_same ________________________
+
+    @pytest.fixture
+    def td():
+        yield
+>       raise RuntimeError("teardown exploded")
+E       RuntimeError: teardown exploded
+
+a/test_a.py:7: RuntimeError
+=================================== FAILURES ===================================
+__________________________________ test_same ___________________________________
+
+td = None
+
+    def test_same(td):
+>       assert 0
+E       assert 0
+
+a/test_a.py:11: AssertionError
+__________________________________ test_same ___________________________________
+
+    def test_same():
+>       assert 0, "b says no"
+E       AssertionError: b says no
+E       assert 0
+
+b/test_b.py:2: AssertionError
+=========================== short test summary info ============================
+FAILED a/test_a.py::test_same - assert 0
+FAILED b/test_b.py::test_same - AssertionError: b says no
+ERROR a/test_a.py::test_same - RuntimeError: teardown exploded
+========================== 2 failed, 1 error in 0.01s ==========================

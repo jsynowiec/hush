@@ -1,0 +1,10 @@
+Installed 1 package in 3ms
+error[invalid-return-type]: Return type does not match returned value
+ --> pkg/__init__.py:5:12
+  |
+4 | def bad()->int:
+  |            --- Expected `int` because of return type
+5 |     return "x"
+  |            ^^^ expected `int`, found `Literal["x"]`
+
+Found 1 diagnostic
