@@ -3,7 +3,7 @@
 Noisy build and test output wastes a coding agent's context window. `hush` runs one command and prints a single line if it passes. If it fails, it prints where it failed (`path:line`), a few lines of explanation, and the path to the full log.
 
 ```
-  ✔ PASS (pytest) Unit tests passed (318 tests); 12.4s
+  ✔ PASS (pytest) Unit tests passed (318 tests, 4 skipped, 1 xfailed, 2 warnings); 12.4s
 ```
 
 ```
@@ -154,7 +154,7 @@ Known limits:
 - A tool parser's failure whose file cannot be found is not shown. The report counts them ("and N more not matched to a file") and the log has the details.
 - A parser can still be wrong in a way the file check cannot catch, for example by naming a real file with the wrong line. The tests use real captured output to guard against this, but a new tool version can break a parser until its fixture is refreshed.
 - Paths are only recognised if they are relative to the directory the command ran in. A path that leads outside the directory where you started `hush` (through `..` or a symlink) is never reported as a location, even if the file exists.
-- Warnings in a passing run are hidden by design.
+- On the pass line, pytest and vitest also show `skipped`, `xfailed`, `xpassed` and `todo` counts, and pytest shows `warnings`, each only when above 0. They come from the tool's summary line, so a test that prints a fake line could change them too. Any other warnings in a passing run (from a compiler or linter, say) are hidden by design.
 - The `N tests` count comes from the tool's summary line, or the last `N passed` in the output for other tools. A test that prints a fake line could change it.
 
 ## Safety

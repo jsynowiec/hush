@@ -1,6 +1,7 @@
 import re
 
 from hush.extract import Failure
+from hush.parsers.base import Outcome
 from hush.runner import RunResult
 
 MAX_REASON_LINES = 8
@@ -11,9 +12,19 @@ _RED = "\x1b[31m"
 _RESET = "\x1b[0m"
 
 
-def success_line(label: str, test_count: int | None, seconds: float, *, color: bool = False) -> str:
-    noun = "test" if test_count == 1 else "tests"
-    count = f" ({test_count} {noun})" if test_count is not None else ""
+def success_line(label: str, counts: Outcome, seconds: float, *, color: bool = False) -> str:
+    items = []
+    if counts.test_count is not None:
+        items.append(f"{counts.test_count} {'test' if counts.test_count == 1 else 'tests'}")
+    extras = (
+        (counts.skipped, "skipped"),
+        (counts.xfailed, "xfailed"),
+        (counts.xpassed, "xpassed"),
+        (counts.todo, "todo"),
+        (counts.warnings, "warning" if counts.warnings == 1 else "warnings"),
+    )
+    items.extend(f"{n} {word}" for n, word in extras if n > 0)
+    count = f" ({', '.join(items)})" if items else ""
     return f"  {_mark('✔ PASS', _GREEN, color)} {label} passed{count}; {seconds:.1f}s"
 
 

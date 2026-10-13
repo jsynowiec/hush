@@ -1,0 +1,9 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.7, pytest-9.1.1, pluggy-1.6.0
+rootdir: /work
+configfile: pyproject.toml
+collected 3 items
+
+tests/test_skips.py sss                                                  [100%]
+
+============================== 3 skipped in 0.00s ==============================

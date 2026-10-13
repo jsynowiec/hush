@@ -10,12 +10,18 @@ _FILE_SUFFIX = re.compile(r"^(\S+) \[ .+ \]$")
 # A frame is `❯ src/a.ts:4:17`, or `❯ fn src/a.ts:4:17` when the function has a name.
 _FRAME = re.compile(r"^ ❯ (?:.* )?(?P<path>\S+):(?P<line>\d+):\d+$")
 _TESTS_LINE = re.compile(r"^\s+Tests\s+(?P<body>.+)$")
-_PASSED = re.compile(r"(?<!\d)(\d+) passed\b")
+_COUNT = re.compile(r"(?<!\d)(\d+) (passed|skipped|todo)\b")
 
 
 def parse(text: str) -> Outcome:
     lines = text.splitlines()
-    return Outcome(failures=tuple(_failures(lines)), test_count=_passed_count(lines))
+    counts = _summary_counts(lines)
+    return Outcome(
+        failures=tuple(_failures(lines)),
+        test_count=counts.get("passed"),
+        skipped=counts.get("skipped", 0),
+        todo=counts.get("todo", 0),
+    )
 
 
 def _failures(lines: list[str]) -> list[Failure]:
@@ -54,8 +60,13 @@ def _failure(name: str, block: list[str]) -> Failure:
     return Failure(location=format_location("::".join(name.split(" > ")), line_number), reason=tuple(reason))
 
 
-def _passed_count(lines: list[str]) -> int | None:
+def _summary_counts(lines: list[str]) -> dict[str, int]:
+    """Counts from the last `Tests  1 passed | 2 skipped (3)` line."""
     for line in reversed(lines):
-        if (m := _TESTS_LINE.match(line)) and (passed := _PASSED.search(m["body"])):
-            return int(passed[1])
-    return None
+        if m := _TESTS_LINE.match(line):
+            counts: dict[str, int] = {}
+            for c in _COUNT.finditer(m["body"]):
+                counts.setdefault(c[2], int(c[1]))
+            if counts:
+                return counts
+    return {}

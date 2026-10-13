@@ -250,8 +250,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     color = args.color == "always" or (args.color == "auto" and sys.stdout.isatty() and "NO_COLOR" not in os.environ)
     if result.exit_code == 0:
-        passed = parsers.passed_count(tool, text)
-        print(report.success_line(label, passed, result.seconds, color=color))
+        counts = parsers.passed_summary(tool, text)
+        print(report.success_line(label, counts, result.seconds, color=color))
         return 0
     diagnosis = (
         parsers.Diagnosis(())

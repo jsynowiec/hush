@@ -9,8 +9,10 @@ import time
 from pathlib import Path
 
 import pytest
+from support import load_fixture as load
 
-from hush import cli
+from hush import cli, report
+from hush.parsers.base import Outcome
 
 # The run id every log name ends with, written out here so the tests do not use the pattern in cli.py.
 RUN_ID = r"\d{8}T\d{6}-[0-9a-f]{4}"
@@ -64,6 +66,28 @@ def test_success_prints_one_line_and_hides_child_output(run: Run):
 def test_success_reports_the_passed_count(run: Run):
     _, out = run("--name", "Smoke", child="print('=== 12 passed in 1.00s ===')")
     assert "passed (12 tests);" in out
+
+
+def test_success_shows_skipped_xfailed_and_warning_counts_from_a_real_pytest_run(run: Run):
+    _, out = run("--tool", "pytest", "--name", "Smoke", child=f"print({load('pytest_pass_skip_xfail_warn')!r})")
+    assert re.fullmatch(
+        r"  ✔ PASS \(pytest\) Smoke passed \(2 tests, 1 skipped, 1 xfailed, 1 warning\); \d+\.\ds\n", out
+    )
+
+
+def test_success_with_only_skipped_tests_shows_the_skips_alone(run: Run):
+    _, out = run("--tool", "pytest", "--name", "Smoke", child=f"print({load('pytest_all_skipped')!r})")
+    assert re.fullmatch(r"  ✔ PASS \(pytest\) Smoke passed \(3 skipped\); \d+\.\ds\n", out)
+
+
+def test_success_line_lists_extra_counts_in_a_fixed_order_and_pluralises_warnings():
+    counts = Outcome(test_count=1, skipped=2, xfailed=3, xpassed=4, todo=5, warnings=6)
+    assert report.success_line("(x)", counts, 0.04) == (
+        "  ✔ PASS (x) passed (1 test, 2 skipped, 3 xfailed, 4 xpassed, 5 todo, 6 warnings); 0.0s"
+    )
+    assert report.success_line("(x)", Outcome(warnings=1), 0.04) == "  ✔ PASS (x) passed (1 warning); 0.0s"
+    assert report.success_line("(x)", Outcome(test_count=2), 0.04) == "  ✔ PASS (x) passed (2 tests); 0.0s"
+    assert report.success_line("(x)", Outcome(), 0.04) == "  ✔ PASS (x) passed; 0.0s"
 
 
 def test_color_always_marks_a_pass_green_and_a_failure_red(run: Run):

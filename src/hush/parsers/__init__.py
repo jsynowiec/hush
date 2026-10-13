@@ -8,7 +8,7 @@ tool-agnostic extractor, then the tail of the output.
 
 import re
 from collections.abc import Iterator, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from hush import extract
 from hush.extract import Failure, PathExists
@@ -23,7 +23,7 @@ from hush.parsers import (
     vite_parser,
     vitest_parser,
 )
-from hush.parsers.base import Parser
+from hush.parsers.base import Outcome, Parser
 
 PARSERS: Mapping[str, Parser] = {
     "pytest": pytest_parser.parse,
@@ -59,13 +59,18 @@ def parse(tool: str | None, text: str, path_exists: PathExists, detail_limit: in
     return Diagnosis(extract.extract_failures(text, path_exists, detail_limit))
 
 
-def passed_count(tool: str | None, text: str) -> int | None:
+def passed_summary(tool: str | None, text: str) -> Outcome:
+    """The counts for the pass line: from the tool's parser, else the last `N passed` in the output."""
     parser = PARSERS.get(tool or "")
-    specific = parser(text).test_count if parser else None
-    if specific is not None:
+    specific = parser(text) if parser else Outcome()
+    if replace(specific, failures=()) != Outcome():
         return specific
     matches = _PASSED.findall(text)
-    return int(matches[-1]) if matches else None
+    return Outcome(test_count=int(matches[-1])) if matches else Outcome()
+
+
+def passed_count(tool: str | None, text: str) -> int | None:
+    return passed_summary(tool, text).test_count
 
 
 def _parsers_to_try(tool: str | None) -> Iterator[Parser]:

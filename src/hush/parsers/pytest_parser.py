@@ -14,7 +14,7 @@ _FRAME = re.compile(r"^(?P<path>\S+?\.py):(?P<line>\d+): ")
 # Test ids may contain spaces, so read up to pytest's ` - message` separator.
 _SUMMARY_ID = re.compile(r"^(?:FAILED|ERROR) (?P<nodeid>.+?)(?: - .*)?$")
 _RESULT_LINE = re.compile(r"\bin \d+(?:\.\d+)?s\b")
-_PASSED = re.compile(r"(?<!\d)(\d+) passed\b")
+_COUNT = re.compile(r"(?<!\d)(\d+) (passed|skipped|xfailed|xpassed|warning)s?\b")
 _ERROR_LINE = re.compile(r"^E\s+(?P<text>.*)$")
 
 
@@ -23,7 +23,15 @@ def parse(text: str) -> Outcome:
     sections = _failure_sections(lines)
     nodeids = _nodeids_by_title_and_file(lines)
     failures = tuple(_failure(section, _section_key(title), nodeids) for title, section in sections)
-    return Outcome(failures=failures, test_count=_passed_count(lines))
+    counts = _summary_counts(lines)
+    return Outcome(
+        failures=failures,
+        test_count=counts.get("passed"),
+        skipped=counts.get("skipped", 0),
+        xfailed=counts.get("xfailed", 0),
+        xpassed=counts.get("xpassed", 0),
+        warnings=counts.get("warning", 0),
+    )
 
 
 def _failure_sections(lines: list[str]) -> list[tuple[str, list[str]]]:
@@ -91,8 +99,13 @@ def _location(nodeid: str | None, frames: list[tuple[str, str]]) -> str | None:
     return format_location(nodeid, line)
 
 
-def _passed_count(lines: list[str]) -> int | None:
+def _summary_counts(lines: list[str]) -> dict[str, int]:
+    """Counts from the last line that reads like pytest's `1 passed, 1 skipped in 0.05s` summary."""
     for line in reversed(lines):
-        if _RESULT_LINE.search(line) and (m := _PASSED.search(line)):
-            return int(m[1])
-    return None
+        if _RESULT_LINE.search(line):
+            counts: dict[str, int] = {}
+            for m in _COUNT.finditer(line):
+                counts.setdefault(m[2], int(m[1]))
+            if counts:
+                return counts
+    return {}

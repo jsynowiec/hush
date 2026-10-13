@@ -291,6 +291,58 @@ def test_passed_count_for_an_unknown_tool_uses_the_generic_summary():
     assert parsers.passed_count("make", "all done") is None
 
 
+def counts(tool: str, text: str) -> tuple[int | None, int, int, int, int, int]:
+    """Passed, skipped, xfailed, xpassed, todo and warnings, in that order."""
+    o = parsers.passed_summary(tool, text)
+    return o.test_count, o.skipped, o.xfailed, o.xpassed, o.todo, o.warnings
+
+
+@pytest.mark.parametrize(
+    ("tool", "fixture", "expected"),
+    [
+        # `2 deselected` is not reported.
+        ("pytest", "pytest_pass", (1, 0, 0, 0, 0, 0)),
+        ("pytest", "pytest_pass_skip_xfail_warn", (2, 1, 1, 0, 0, 1)),
+        ("pytest", "pytest_pass_xpass", (1, 0, 0, 1, 0, 0)),
+        ("pytest", "pytest_all_skipped", (None, 3, 0, 0, 0, 0)),
+        ("vitest", "vitest_pass", (1, 2, 0, 0, 0, 0)),
+    ],
+)
+def test_extra_counts_come_from_the_tools_own_summary(tool: str, fixture: str, expected: tuple[int | None, ...]):
+    assert counts(tool, load(fixture)) == expected
+
+
+def test_vitest_todo_count_is_read_from_the_tests_line():
+    # Edited from a real run, which has no todo test. The line follows vitest's `| N todo` wording.
+    text = load("vitest_pass").replace("1 passed | 2 skipped (3)", "1 passed | 2 skipped | 3 todo (6)")
+    assert counts("vitest", text) == (1, 2, 0, 0, 3, 0)
+
+
+def test_other_tools_report_no_extra_counts():
+    assert counts("ruff", "3 skipped, 2 warnings in 0.1s\n5 passed in 1.00s") == (5, 0, 0, 0, 0, 0)
+    assert counts("make", "=== 1 passed, 4 skipped, 2 warnings in 1.00s ===") == (1, 0, 0, 0, 0, 0)
+
+
+def test_pytest_counts_ignore_lines_printed_by_a_test_that_pose_as_a_summary():
+    real = load("pytest_pass_skip_xfail_warn")
+    fake = "=== 9 passed, 7 skipped, 5 xfailed, 4 xpassed, 3 warnings in 1.00s ===\n"
+    # Printed before the real summary line, and after it where it has no `in 1.00s`.
+    text = real.replace("tests/test_a.py .sx.", fake + "tests/test_a.py .sx.") + "9 passed, 9 skipped, 9 warnings\n"
+    assert counts("pytest", text) == (2, 1, 1, 0, 0, 1)
+
+
+def test_pytest_counts_with_only_skips_do_not_borrow_an_earlier_fake_passed_count():
+    text = load("pytest_all_skipped").replace("tests/test_skips.py sss", "5 passed in 1.00s\ntests/test_skips.py sss")
+    assert counts("pytest", text) == (None, 3, 0, 0, 0, 0)
+
+
+def test_vitest_counts_ignore_a_fake_tests_line_that_is_not_the_last():
+    real = load("vitest_pass")
+    fake = "      Tests  9 passed | 7 skipped | 5 todo (21)\n"
+    assert counts("vitest", fake + real) == (1, 2, 0, 0, 0, 0)
+    assert counts("vitest", real + "stdout | Tests  9 skipped (9)\n") == (1, 2, 0, 0, 0, 0)
+
+
 SLOW_BEFORE = {
     "digits": "1" * 300_000,
     "unterminated key blocks": "-----BEGIN PRIVATE KEY-----\n" * 20_000,
