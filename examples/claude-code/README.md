@@ -86,7 +86,7 @@ Each `if` rule in the settings files makes Claude Code start the hook only for c
 
 When the hook does start, it costs roughly 80 to 100 ms: about 20 ms for `python3` and about 40 ms for `hush --classify`. A command the hook can dismiss without asking hush costs about 30 ms. The rules are only a speed-up: if one is missing the command is simply not rewritten, and a test fails if a tool, launcher or package manager known to hush has no rule. Hooks that your organisation installs system-wide add their own time to every tool call, separate from this one.
 
-The hook leaves a command alone when one of its words is in `SKIP_ARGS` in `hooks/hush_nudge.py` (help and version flags, `-w`, `server`, `dev`, `start`, `watch`, `list`, `ui` and the like). For `docker` and `docker-compose` commands only the words from the tool onward are checked, so a container, service, user or `-w DIR` value named like one of those words does not stop the rewrite, while `docker exec web vitest --watch` is still left alone.
+The hook leaves a command alone when one of its words is in `SKIP_ARGS` in `hooks/hush_nudge.py` (help and version flags, `-w`, `server`, `dev`, `start`, `watch`, `list`, `ui` and the like). For `docker` and `docker-compose` commands only the words from the tool onward are checked, so a container, service, user or `-w DIR` value named like one of those words does not stop the rewrite, while `docker exec web vitest --watch` is still left alone. A skipped word that sits before the tool, such as `docker exec web node --watch ./node_modules/.bin/vitest run`, is not seen. Docker commands without `exec` (`docker ps`, `docker build`) are dismissed without starting `hush`.
 
 ## Permissions
 

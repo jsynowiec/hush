@@ -57,30 +57,31 @@ _SHORT_VALUE_LETTERS = frozenset(option[1] for option in _CONTAINER_VALUE_OPTION
 _LONG_EXEC_FLAGS = {"--detach": "d", "--tty": "t", "--interactive": "i"}
 
 
+def _split_cluster(token: str) -> tuple[str, str, str]:
+    """Split a short option cluster at its first value option: (flags before it, that letter, value attached to it).
+
+    `-iu` gives ("i", "u", ""), `-ieA=1` gives ("i", "e", "A=1") and `-it` gives ("it", "", "").
+    """
+    for position, letter in enumerate(token[1:], start=1):
+        if letter in _SHORT_VALUE_LETTERS:
+            return token[1:position], letter, token[position + 1 :]
+    return token[1:], "", ""
+
+
 def _exec_flags(token: str) -> set[str]:
     """Which of `d` (detach), `t` (tty) and `i` (interactive) a token sets: `-d`, `--detach`, `--tty=true`, `-it`."""
     if token.startswith("--"):
         letter = _LONG_EXEC_FLAGS.get(token.partition("=")[0])
         return {letter} if letter else set()
-    found: set[str] = set()
-    for letter in token[1:]:
-        if letter in "dti":
-            found.add(letter)
-        elif letter in _SHORT_VALUE_LETTERS:
-            break
-    return found
+    return set(_split_cluster(token)[0]) & {"d", "t", "i"}
 
 
 def _takes_next_word(token: str) -> bool:
     """Whether the word after this option is its value, as in `-e A=1` or `-iu root`."""
-    if token in _CONTAINER_VALUE_OPTIONS:
-        return True
     if token.startswith("--"):
-        return False
-    for position, letter in enumerate(token[1:], start=1):
-        if letter in _SHORT_VALUE_LETTERS:
-            return position == len(token) - 1
-    return False
+        return token in _CONTAINER_VALUE_OPTIONS
+    _, letter, attached = _split_cluster(token)
+    return bool(letter) and not attached
 
 
 def _skip_options(argv: Sequence[str], index: int) -> tuple[int, set[str]]:
@@ -102,7 +103,7 @@ def _skip_options(argv: Sequence[str], index: int) -> tuple[int, set[str]]:
 def _exec_layout(argv: Sequence[str]) -> tuple[int, set[str]] | None:
     """For `docker exec` and `docker compose exec`: where the container or service name is, and the `d`, `t`, `i` flags.
 
-    Skips the options of docker, compose and exec on the way. The index can be past the end when the name is missing.
+    The index can be past the end when the name is missing.
     """
     for words in _EXEC_FORMS.get(_basename(argv[0]), ()):
         index = 1
@@ -134,15 +135,6 @@ def _container_command(argv: Sequence[str]) -> int | None:
     return None if unfit or command >= len(argv) else command
 
 
-def _short_env_option(token: str) -> tuple[bool, int | None]:
-    """For a short option cluster: whether its value option is `-e`, and where an attached value starts."""
-    for position, letter in enumerate(token[1:], start=1):
-        if letter in _SHORT_VALUE_LETTERS:
-            attached = position + 1 if position < len(token) - 1 else None
-            return letter == "e", attached
-    return False, None
-
-
 def _exec_env_args(argv: Sequence[str]) -> Iterator[tuple[int, int]]:
     """Where each `-e` or `--env` value of `docker exec` sits: `argv[index][offset:]` is `NAME=VALUE` or `NAME`."""
     layout = _exec_layout(argv)
@@ -154,11 +146,15 @@ def _exec_env_args(argv: Sequence[str]) -> Iterator[tuple[int, int]]:
         token = argv[index]
         if token == "--":
             return
+        if not token.startswith("-"):
+            index += 1  # a subcommand word such as `exec`
+            continue
         if token.startswith("--"):
             option, equals, _ = token.partition("=")
             is_env, attached = option == "--env", (len(option) + 1 if equals else None)
         else:
-            is_env, attached = _short_env_option(token)
+            _, letter, value = _split_cluster(token)
+            is_env, attached = letter == "e", (len(token) - len(value) if value else None)
         if is_env and attached is not None:
             yield index, attached
         elif is_env and index + 1 < limit:
@@ -173,7 +169,7 @@ def exec_env(argv: Sequence[str]) -> dict[str, str]:
 
 
 def mask_exec_env(argv: Sequence[str], is_secret: Callable[[str], bool], placeholder: str) -> list[str]:
-    """A copy of argv with the value of each `-e NAME=VALUE` replaced when `is_secret(NAME)`."""
+    """A copy of argv with the value of each `-e NAME=VALUE` replaced when `is_secret(NAME)`, spelling kept."""
     masked = list(argv)
     for index, offset in _exec_env_args(argv):
         name, equals, _ = argv[index][offset:].partition("=")

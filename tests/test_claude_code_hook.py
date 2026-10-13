@@ -251,6 +251,15 @@ def test_environment_prefixes_never_start_hush(monkeypatch):
     assert nudge.decide("") is None
 
 
+def test_docker_commands_without_exec_never_start_hush(monkeypatch):
+    def fail(argv):
+        raise AssertionError("hush was started")
+
+    monkeypatch.setattr(nudge, "_classify", fail)
+    for command in ("docker ps", "docker build .", "docker compose up -d", "docker-compose logs app"):
+        assert nudge.decide(command) is None
+
+
 def test_hush_saying_no_wins_over_a_name_it_printed(tmp_path):
     path = _fake_hush(tmp_path / "no", 1, "pytest")  # exit 1 means "not recognised", whatever was printed
     result = _run_hook(_bash("pytest"), path)
@@ -373,6 +382,7 @@ def test_prefilter_covers_every_tool_launcher_and_package_manager(settings_file)
     rules = _handler_rules(settings_file)
     first_words = {rule.removeprefix("Bash(").removesuffix(")").removesuffix(" *") for rule in rules}
     wanted = set(tools.INNER_TOOLS) | set(tools._LAUNCHERS) | set(nudge.PACKAGE_MANAGERS) | set(tools._EXEC_FORMS)
+    assert set(nudge.CONTAINER_COMMANDS) == set(tools._EXEC_FORMS)
     assert wanted - first_words == set()
     assert "python*" in first_words  # stands for python, python3, python3.12 ...
     for tool in tools.INNER_TOOLS:

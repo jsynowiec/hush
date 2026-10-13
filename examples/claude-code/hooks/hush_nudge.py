@@ -155,6 +155,8 @@ def decide(command):
         # "not recognised" too; this saves starting it.
         return None
     in_container = os.path.basename(argv[0]) in CONTAINER_COMMANDS
+    if in_container and "exec" not in argv:
+        return None  # `docker ps`, `docker build`, `docker compose up`: nothing to look through
     if not in_container and _skips(argv):
         return None
     tool = _classify(argv)

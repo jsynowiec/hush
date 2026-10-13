@@ -78,9 +78,10 @@ def normalize(text: str, redact: Callable[[str], str] | None = None) -> str:
 class Redactor:
     """Masks well-known token shapes and the values of secret-looking environment variables."""
 
-    def __init__(self, environ: Mapping[str, str]) -> None:
+    def __init__(self, *environs: Mapping[str, str]) -> None:
+        """`environs` are separate mappings, so a name in two of them has both of its values masked."""
         values: set[str] = set()
-        for name, value in environ.items():
+        for name, value in (pair for environ in environs for pair in environ.items()):
             if not is_secret_env_name(name):
                 continue
             if len(value) >= _MIN_SECRET_LENGTH:

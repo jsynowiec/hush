@@ -37,6 +37,17 @@ def test_private_key_block_is_redacted():
     assert sanitize.Redactor({}).redact(f"x\n{block}\ny") == "x\n[REDACTED]\ny"
 
 
+def test_a_name_in_two_mappings_has_both_values_masked():
+    redactor = sanitize.Redactor({"DB_PASSWORD": "host-secret-value"}, {"DB_PASSWORD": "short"})
+    assert redactor.redact("a host-secret-value b short c") == "a [REDACTED] b short c"
+    assert (
+        sanitize.Redactor({"DB_PASSWORD": "host-secret-value"}, {"DB_PASSWORD": "other-secret-value"}).redact(
+            "host-secret-value other-secret-value"
+        )
+        == "[REDACTED] [REDACTED]"
+    )
+
+
 def test_values_of_secret_looking_env_vars_are_redacted():
     redactor = sanitize.Redactor({"DB_PASSWORD": "hunter2hunter2", "HOME": "/Users/someone"})
     assert redactor.redact("conn failed for hunter2hunter2 at /Users/someone") == (

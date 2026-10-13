@@ -99,8 +99,8 @@ def run_command(
 
     The command gets its own process group. On timeout, or when hush is interrupted
     (SIGINT, SIGTERM, SIGHUP), the whole group is stopped, so no test process is left behind.
-    That covers processes on this machine only: a process that `docker exec` started inside a container is
-    not in the group and keeps running.
+    A process started through another program, such as a container client, is not in the group and
+    keeps running.
     A further signal while the group is stopping kills it at once.
     The run ends when the command exits. A background process that keeps the output pipe open
     cannot hold hush up.

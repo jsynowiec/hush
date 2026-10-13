@@ -298,46 +298,30 @@ def test_failfast_stops_pytest_at_the_first_failure(run: Run):
     ],
 )
 def test_docker_exec_gets_the_inner_tool_label_counts_and_failfast(
-    docker_args: list[str],
-    recorded: str,
-    run: Run,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
+    docker_args: list[str], recorded: str, run: Run, capsys: pytest.CaptureFixture[str]
 ):
     # A stand-in `docker` that records its arguments and prints real captured pytest output.
-    bin_dir = run.tmp_path / "bin"
-    bin_dir.mkdir()
     (run.tmp_path / "pytest_output.txt").write_text(load("pytest_pass_skip_xfail_warn"))
-    script = bin_dir / "docker"
-    script.write_text('#!/bin/sh\nprintf "%s " "$@" > args.txt\ncat pytest_output.txt\n')
-    script.chmod(0o755)
-    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
-    code = cli.main(["--log-dir", str(run.log_dir), "--failfast", "--", "docker", *docker_args])
+    docker = run.tmp_path / "docker"
+    docker.write_text('#!/bin/sh\nprintf "%s " "$@" > args.txt\ncat pytest_output.txt\n')
+    docker.chmod(0o755)
+    code = cli.main(["--log-dir", str(run.log_dir), "--failfast", "--", str(docker), *docker_args])
     out = capsys.readouterr().out
     assert code == 0
     assert re.fullmatch(r"  ✔ PASS \(pytest\) passed \(2 tests, 1 skipped, 1 xfailed, 1 warning\); \d+\.\ds\n", out)
     assert (run.tmp_path / "args.txt").read_text() == recorded
 
 
-def test_docker_exec_env_secrets_are_masked_in_the_log_and_the_output(
-    run: Run, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-):
-    bin_dir = run.tmp_path / "bin"
-    bin_dir.mkdir()
-    script = bin_dir / "docker"
-    script.write_text("#!/bin/sh\necho 'connecting with longsecret99 and short7'\nexit 1\n")
-    script.chmod(0o755)
-    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
-    cli.main(
-        ["--log-dir", str(run.log_dir), "--"]
-        + ["docker", "exec", "-e", "DB_PASSWORD=short7", "-e", "API_KEY=longsecret99", "-e", "DEBUG=1", "web", "pytest"]
-    )
-    out = capsys.readouterr().out
-    (log_path,) = run.log_dir.glob("*.log")
-    log = log_path.read_text()
+def test_docker_exec_env_secrets_are_masked_in_the_log_and_the_output(run: Run):
+    docker = run.tmp_path / "docker"
+    docker.write_text("#!/bin/sh\necho 'connecting with longsecret99 and short7'\nexit 1\n")
+    docker.chmod(0o755)
+    command = [str(docker), "exec", "-e", "DB_PASSWORD=short7", "-e", "API_KEY=longsecret99", "-e", "DEBUG=1"]
+    _, out = run("--name", "Smoke", child=[*command, "web", "pytest"])
+    log = run.log()
     # Short values are hidden in the command line. Values of 8 characters or more are hidden everywhere.
-    assert log.splitlines()[0] == (
-        "$ docker exec -e DB_PASSWORD=[REDACTED] -e API_KEY=[REDACTED] -e DEBUG=1 web pytest"
+    assert (
+        log.splitlines()[0] == f"$ {docker} exec -e DB_PASSWORD=[REDACTED] -e API_KEY=[REDACTED] -e DEBUG=1 web pytest"
     )
     assert "longsecret99" not in log + out
     assert "connecting with [REDACTED] and short7" in log

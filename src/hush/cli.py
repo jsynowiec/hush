@@ -228,9 +228,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     command = tools.with_failfast(args.command, inferred_tool, tool_index) if args.failfast else list(args.command)
     label = f"({tool}) {args.name}".rstrip()
     log_path = Path(args.log_dir) / _log_name(prefix, tool, args.name, _run_id())
-    # Values given to `docker exec -e` are secrets the same way environment variables are.
-    redactor = sanitize.Redactor({**os.environ, **tools.exec_env(args.command)})
-    shown_command = tools.mask_exec_env(command, sanitize.is_secret_env_name, sanitize.REDACTED)
+    # Values the command passes into a container are secrets the same way environment variables are.
+    redactor = sanitize.Redactor(os.environ, tools.exec_env(command))
 
     result = runner.run_command(
         command,
@@ -244,7 +243,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         redactor.redact_multiline(sanitize.normalize(result.output.decode("utf-8", errors="replace"), redactor.redact)),
         child_cwd,
     )
-    log_note = _save_log(log_path, redactor.redact(_log_contents(shown_command, text, result)))
+    log_note = _save_log(
+        log_path,
+        redactor.redact(
+            _log_contents(tools.mask_exec_env(command, sanitize.is_secret_env_name, sanitize.REDACTED), text, result)
+        ),
+    )
     if log_note is None:
         _prune_logs(log_path, args.keep_logs)
     if args.verbose:
