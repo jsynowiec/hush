@@ -34,7 +34,7 @@ hush --name "Unit tests" --failfast -- uv run pytest
 hush --name "Build" --cwd module-b -- pnpm exec vite build
 ```
 
-The tool label in brackets (`(ruff)`, `(pytest)`) is guessed from the command, including through `uv run`, `uvx`, `pnpm exec`, `bunx`, `bun`, `npx`, `node` and `python -m`. Use `--tool` to set it by hand.
+The tool label in brackets (`(ruff)`, `(pytest)`) is guessed from the command, including through `uv run`, `uvx`, `pnpm exec`, `bunx`, `bun`, `npx`, `node`, `python -m`, `docker exec` and `docker compose exec`. Use `--tool` to set it by hand.
 
 | Option | What it does |
 | --- | --- |
@@ -66,6 +66,24 @@ hush -- uv run ruff check src/retries.py
 ```
 
 With no `--name`, the pass line is `✔ PASS (pytest) passed (3 tests); 1.2s`, and the log is `.tmp/test-results/pytest-<date>T<time>-<id>.log`, unique to this run. Give `--name` to put the step in the file name, which makes the logs easier to tell apart.
+
+## Docker Compose
+
+`hush` looks through `docker exec`, `docker container exec`, `docker compose exec` and `docker-compose exec`, so the label, the pass-line counts and `--failfast` work for a tool that runs in a container:
+
+```
+hush --failfast -- docker compose exec app pytest tests/
+hush -- docker compose exec -T web uv run ruff check .
+hush -- docker exec web pytest tests/
+```
+
+- `hush` closes the command's standard input, and Compose then runs `exec` without a terminal by itself (checked with Compose 5.6.0). If your version complains that the input is not a TTY, add `-T`.
+- Failure locations are found when the paths in the output are relative and the container's working directory matches the directory `hush` runs in, which is how `pytest`, `ruff`, `mypy` and `tsc` print them. If the container directory is a subfolder of the project, run from there with `--cwd`. Absolute paths inside the container, such as `/app/src/a.py`, are not mapped to the host, so those failures are reported without a location.
+- `hush` only checks that a reported path exists on the host. If the container's working directory differs from the host's and both have a file with the same relative path (say `tests/test_a.py`), the report can name the host's file instead of the one that failed. Run from the matching directory, or use `--cwd`.
+- `--timeout`, Ctrl-C and SIGTERM stop the local `docker` client, not the process inside the container. Docker does not pass the signal on for a plain `exec`, so a timed-out test run can keep going in the container (reproduced with `sleep`). Stop it yourself, for example with `docker restart CONTAINER` or `docker compose restart SERVICE`, before running again.
+- The log starts with the command line. For `docker exec` and `docker compose exec`, the value of `-e NAME=value` is hidden there when the name looks like a secret (`DB_PASSWORD`, `API_KEY`, `AUTH_TOKEN` and the like), and a value of 8 or more characters is hidden everywhere in the output, as for environment variables, while a shorter one is hidden only in the command line. Values of names that do not look secret are kept, and other docker commands such as `docker run -e` are not masked. `-e NAME` without a value still avoids typing the secret at all.
+- `hush` does not look through `docker exec -d` (it returns at once, so a pass would mean nothing) or `-i` together with `-t` (as in `-it`: there is no terminal to attach, and Docker stops with "stdin is not a terminal"). Those run as they are and are labelled `(docker)`. `-i` alone and `-t` alone are fine.
+- Only `exec` is looked through. `docker compose run`, `docker run` and `sh -c "pytest"` run as they are, labelled `(docker)` or `(sh)`.
 
 ## Ask whether a command is a known tool
 

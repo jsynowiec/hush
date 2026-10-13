@@ -51,6 +51,7 @@ Things to know about the project install:
 It rewrites:
 
 - Known tools, looked up by `hush --classify`: `pytest`, `uv run ruff check .`, `pnpm exec vitest run`, `npx tsc --noEmit`, `python -m pytest`, and paths to them such as `./node_modules/.bin/eslint`.
+- A tool run in a container with `docker exec`, `docker compose exec` or `docker-compose exec`, such as `docker exec web pytest`. `hush` does not look through `-d` (detached) or `-i` together with `-t` (needs a terminal, which neither the agent nor `hush` has), so those commands pass through. The agent's own run of `docker exec -it` then fails with Docker's message, and its retry without `-t` is rewritten.
 - Package scripts that hide the tool: `pnpm test`, `npm t`, `npm run test:unit`, `npm run lint`, `pnpm build` and the like.
 - A leading `cd`: `cd web && pnpm test` becomes `cd web && hush -- pnpm test`. The `cd` stays because hush only reports file locations under the directory it started in, so `--cwd` would lose them for `cd ../x`.
 
@@ -85,12 +86,15 @@ Each `if` rule in the settings files makes Claude Code start the hook only for c
 
 When the hook does start, it costs roughly 80 to 100 ms: about 20 ms for `python3` and about 40 ms for `hush --classify`. A command the hook can dismiss without asking hush costs about 30 ms. The rules are only a speed-up: if one is missing the command is simply not rewritten, and a test fails if a tool, launcher or package manager known to hush has no rule. Hooks that your organisation installs system-wide add their own time to every tool call, separate from this one.
 
+The hook leaves a command alone when one of its words is in `SKIP_ARGS` in `hooks/hush_nudge.py` (help and version flags, `-w`, `server`, `dev`, `start`, `watch`, `list`, `ui` and the like). For `docker` and `docker-compose` commands only the words from the tool onward are checked, so a container, service, user or `-w DIR` value named like one of those words does not stop the rewrite, while `docker exec web vitest --watch` is still left alone.
+
 ## Permissions
 
 `permissions.allow.json` lets the rewritten commands, such as `hush -- uv run pytest *`, run without a prompt. It is optional, and it has limits:
 
 - It has no effect where your organisation sets `allowManagedPermissionRulesOnly`. On such a machine only the managed allow list counts, so ask your administrator whether `make verify` or the hush commands are on it. If `make verify` is allowed, that route runs without a prompt.
 - Whether these rules match exactly the commands the hook suggests was not verified.
+- The file has no rules for `docker exec` or `docker compose exec`, on purpose. A rule such as `hush -- docker exec *` would approve any command in any container, for the same reason `--cwd *` is excluded below. Rewritten container commands still ask for permission.
 - Each rule allows whatever its tool can be told to run, the same as allowing the tool bare. For example `pytest -p some_module`, `eslint -c evil.js`, `prettier --plugin` and `npm run build` run code. Allow only tools you would allow without hush.
 - Never allow `Bash(hush *)` or any `--cwd *` form. `*` stands for any text, so `hush --cwd . -- sh -c '...'` would match, and hush runs whatever it is given. The hook does not suggest `--cwd` for this reason.
 - Claude Code splits compound commands and checks each part, so a rule for a hush command does not cover `; rm -rf`.

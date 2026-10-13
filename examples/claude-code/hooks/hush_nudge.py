@@ -22,6 +22,9 @@ import sys
 
 CLASSIFY_TIMEOUT = 2  # seconds; a hush that is slower than this counts as "not recognised"
 PACKAGE_MANAGERS = {"npm", "pnpm", "yarn", "bun"}
+# Commands that run another command in a container. Their own words (container, user, `-w DIR`) are not the
+# tool's arguments.
+CONTAINER_COMMANDS = {"docker", "docker-compose"}
 # Routine package scripts, with optional suffixes such as `test:unit`. `t` is the npm alias for `test`.
 SCRIPT = re.compile(r"^(t|test|lint|typecheck|type-check|check|build|format)(:.+)?$")
 # Arguments and subcommands whose output is the point, or that start a long-running process.
@@ -151,9 +154,15 @@ def decide(command):
         # Empty, or an environment prefix, which is also the deliberate way to run a tool raw. hush would say
         # "not recognised" too; this saves starting it.
         return None
-    if _skips(argv):
+    in_container = os.path.basename(argv[0]) in CONTAINER_COMMANDS
+    if not in_container and _skips(argv):
         return None
     tool = _classify(argv)
+    if in_container and tool is not None:
+        # Only the tool's own arguments count: `docker exec -w /app server pytest` is a routine run.
+        first = next((i for i, arg in enumerate(argv) if os.path.basename(arg) == tool), 0)
+        if _skips(argv[first:]):
+            return None
     if tool == "vite" and "build" not in argv:
         return None  # only `vite build` is a routine run; bare `vite` is a dev server
     if tool is None and not _is_package_script(argv):

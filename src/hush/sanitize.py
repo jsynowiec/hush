@@ -49,6 +49,10 @@ _MIN_SECRET_LENGTH = 8
 REDACTED = "[REDACTED]"
 
 
+def is_secret_env_name(name: str) -> bool:
+    return name not in _NOT_SECRET_ENV_NAMES and bool(_SECRET_ENV_NAME.search(name))
+
+
 def _clean_line(line: str, redact: Callable[[str], str] | None) -> str:
     """One line with escape codes gone, `\\r` overwrites resolved like a terminal, and clipped."""
     line = _CONTROL.sub("", _ANSI.sub("", line.removesuffix("\r").rsplit("\r", 1)[-1]))
@@ -77,7 +81,7 @@ class Redactor:
     def __init__(self, environ: Mapping[str, str]) -> None:
         values: set[str] = set()
         for name, value in environ.items():
-            if name in _NOT_SECRET_ENV_NAMES or not _SECRET_ENV_NAME.search(name):
+            if not is_secret_env_name(name):
                 continue
             if len(value) >= _MIN_SECRET_LENGTH:
                 # Also the forms a value takes inside JSON and repr output.

@@ -1,5 +1,5 @@
 import re
-from collections.abc import Sequence
+from collections.abc import Callable, Iterator, Sequence
 from pathlib import PurePath
 
 # Tools hush has a parser for. Keep in step with `parsers.PARSERS` (a test checks this).
@@ -18,6 +18,22 @@ _VALUE_OPTIONS = frozenset(
     }
 )  # fmt: skip
 
+# Options of `docker`, `docker compose`, `docker exec` and `compose exec` that take the next word as their value.
+# An option missing here only means the tool is not found, so the command runs as it is.
+_CONTAINER_VALUE_OPTIONS = frozenset(
+    {
+        "--context", "-c", "-H", "--host", "--config", "-l", "--log-level", "--tlscacert", "--tlscert", "--tlskey",
+        "-f", "--file", "-p", "--project-name", "--profile", "--env-file", "--project-directory",
+        "--ansi", "--parallel", "--progress",
+        "-e", "--env", "--index", "-u", "--user", "-w", "--workdir", "--detach-keys",
+    }
+)  # fmt: skip
+# The words that lead to the command of each program, after its own options.
+_EXEC_FORMS: dict[str, tuple[tuple[str, ...], ...]] = {
+    "docker": (("exec",), ("container", "exec"), ("compose", "exec")),
+    "docker-compose": (("exec",),),
+}
+
 # Per-tool fail-fast flag, and the flags that mean the caller already chose a stop policy.
 _FAILFAST_FLAG: dict[str, str] = {"pytest": "-x", "vitest": "--bail=1"}
 _FAILFAST_ALREADY_SET: dict[str, tuple[str, ...]] = {
@@ -34,12 +50,151 @@ def _is_launcher(name: str) -> bool:
     return name in _LAUNCHERS or bool(_PYTHON.match(name))
 
 
+# `-e`, `-u`, `-w` and the like. In a short cluster such as `-iu root`, the first of these takes the rest.
+_SHORT_VALUE_LETTERS = frozenset(option[1] for option in _CONTAINER_VALUE_OPTIONS if len(option) == 2)
+
+
+_LONG_EXEC_FLAGS = {"--detach": "d", "--tty": "t", "--interactive": "i"}
+
+
+def _exec_flags(token: str) -> set[str]:
+    """Which of `d` (detach), `t` (tty) and `i` (interactive) a token sets: `-d`, `--detach`, `--tty=true`, `-it`."""
+    if token.startswith("--"):
+        letter = _LONG_EXEC_FLAGS.get(token.partition("=")[0])
+        return {letter} if letter else set()
+    found: set[str] = set()
+    for letter in token[1:]:
+        if letter in "dti":
+            found.add(letter)
+        elif letter in _SHORT_VALUE_LETTERS:
+            break
+    return found
+
+
+def _takes_next_word(token: str) -> bool:
+    """Whether the word after this option is its value, as in `-e A=1` or `-iu root`."""
+    if token in _CONTAINER_VALUE_OPTIONS:
+        return True
+    if token.startswith("--"):
+        return False
+    for position, letter in enumerate(token[1:], start=1):
+        if letter in _SHORT_VALUE_LETTERS:
+            return position == len(token) - 1
+    return False
+
+
+def _skip_options(argv: Sequence[str], index: int) -> tuple[int, set[str]]:
+    """Skip options from `index`. Also returns the `d`, `t` and `i` flags among them.
+
+    `--` ends the options. Docker accepts it before the container name only: after the name it is
+    taken as the command.
+    """
+    flags: set[str] = set()
+    while index < len(argv) and argv[index].startswith("-"):
+        token = argv[index]
+        flags |= _exec_flags(token)
+        if token == "--":
+            return index + 1, flags
+        index += 2 if _takes_next_word(token) else 1
+    return index, flags
+
+
+def _exec_layout(argv: Sequence[str]) -> tuple[int, set[str]] | None:
+    """For `docker exec` and `docker compose exec`: where the container or service name is, and the `d`, `t`, `i` flags.
+
+    Skips the options of docker, compose and exec on the way. The index can be past the end when the name is missing.
+    """
+    for words in _EXEC_FORMS.get(_basename(argv[0]), ()):
+        index = 1
+        flags: set[str] = set()
+        for word in words:
+            index, found = _skip_options(argv, index)
+            flags |= found
+            if index >= len(argv) or argv[index] != word:
+                break
+            index += 1
+        else:
+            index, found = _skip_options(argv, index)
+            return index, flags | found
+    return None
+
+
+def _container_command(argv: Sequence[str]) -> int | None:
+    """Index of the command that `docker exec` or `docker compose exec` runs in a container, if any.
+
+    Gives None for `-d` (the client returns at once, so the run says nothing about the tests) and for `-i`
+    together with `-t` (hush has no terminal to give, so Docker refuses). Those stay plain `docker` commands.
+    """
+    layout = _exec_layout(argv)
+    if layout is None:
+        return None
+    name_index, flags = layout
+    command = name_index + 1
+    unfit = "d" in flags or {"i", "t"} <= flags
+    return None if unfit or command >= len(argv) else command
+
+
+def _short_env_option(token: str) -> tuple[bool, int | None]:
+    """For a short option cluster: whether its value option is `-e`, and where an attached value starts."""
+    for position, letter in enumerate(token[1:], start=1):
+        if letter in _SHORT_VALUE_LETTERS:
+            attached = position + 1 if position < len(token) - 1 else None
+            return letter == "e", attached
+    return False, None
+
+
+def _exec_env_args(argv: Sequence[str]) -> Iterator[tuple[int, int]]:
+    """Where each `-e` or `--env` value of `docker exec` sits: `argv[index][offset:]` is `NAME=VALUE` or `NAME`."""
+    layout = _exec_layout(argv)
+    if layout is None:
+        return
+    limit = layout[0]
+    index = 1
+    while index < limit:
+        token = argv[index]
+        if token == "--":
+            return
+        if token.startswith("--"):
+            option, equals, _ = token.partition("=")
+            is_env, attached = option == "--env", (len(option) + 1 if equals else None)
+        else:
+            is_env, attached = _short_env_option(token)
+        if is_env and attached is not None:
+            yield index, attached
+        elif is_env and index + 1 < limit:
+            yield index + 1, 0
+        index += 2 if _takes_next_word(token) else 1
+
+
+def exec_env(argv: Sequence[str]) -> dict[str, str]:
+    """The `NAME=VALUE` pairs that `docker exec -e` or `--env` gives the process in the container."""
+    pairs = (argv[index][offset:].partition("=") for index, offset in _exec_env_args(argv))
+    return {name: value for name, equals, value in pairs if equals}
+
+
+def mask_exec_env(argv: Sequence[str], is_secret: Callable[[str], bool], placeholder: str) -> list[str]:
+    """A copy of argv with the value of each `-e NAME=VALUE` replaced when `is_secret(NAME)`."""
+    masked = list(argv)
+    for index, offset in _exec_env_args(argv):
+        name, equals, _ = argv[index][offset:].partition("=")
+        if equals and is_secret(name):
+            masked[index] = f"{argv[index][:offset]}{name}={placeholder}"
+    return masked
+
+
 def find_tool(argv: Sequence[str]) -> tuple[str, int | None]:
     """Return (tool name, index of the tool in argv). Index is None when no inner tool is found.
 
-    Looks through launchers and their options. Stops at the first word that is not part of a
-    launcher's own syntax, so `pnpm install vitest` is not a vitest run.
+    Looks through launchers and their options, and through `docker exec CONTAINER` and
+    `docker compose exec SERVICE`. Stops at the first word that is not part of a launcher's own
+    syntax, so `pnpm install vitest` is not a vitest run.
     """
+    container_command = _container_command(argv)
+    if container_command is not None:
+        name, index = find_tool(argv[container_command:])
+        if index is not None:
+            return name, container_command + index
+        return _basename(argv[0]), None
     index = 0
     while index < len(argv):
         token = argv[index]

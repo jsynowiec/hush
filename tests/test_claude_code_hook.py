@@ -78,6 +78,18 @@ REWRITTEN = [
     ("npx tsc --noEmit", "hush -- npx tsc --noEmit"),
     ("./node_modules/.bin/eslint src", "hush -- ./node_modules/.bin/eslint src"),
     ("pnpm exec vite build", "hush -- pnpm exec vite build"),
+    ("docker compose exec app pytest -x", "hush -- docker compose exec app pytest -x"),
+    ("docker compose exec -T web uv run ruff check .", "hush -- docker compose exec -T web uv run ruff check ."),
+    ("docker-compose exec web python -m pytest", "hush -- docker-compose exec web python -m pytest"),
+    ("docker exec web pytest -x", "hush -- docker exec web pytest -x"),
+    ("docker exec -t web pytest", "hush -- docker exec -t web pytest"),
+    # Container, service and option values named like skipped words are not the tool's arguments.
+    ("docker exec -w /app web pytest", "hush -- docker exec -w /app web pytest"),
+    ("docker exec -u dev web pytest", "hush -- docker exec -u dev web pytest"),
+    ("docker compose exec server pytest", "hush -- docker compose exec server pytest"),
+    ("docker compose exec ui uv run pytest -q", "hush -- docker compose exec ui uv run pytest -q"),
+    ("docker exec -i -e A=1 web uv run ruff check .", "hush -- docker exec -i -e A=1 web uv run ruff check ."),
+    ("cd api && docker compose exec app pytest", "cd api && hush -- docker compose exec app pytest"),
     ("pnpm test", "hush -- pnpm test"),
     ("npm t", "hush -- npm t"),
     ("npm run lint", "hush -- npm run lint"),
@@ -152,12 +164,25 @@ LET_THROUGH = [
     "cd web && pnpm exec vite dev --port 5173",
     "pnpm exec vite preview",
     "pnpm exec biome lsp-proxy",
+    "docker compose exec app pytest --collect-only",
+    "docker exec web pytest --collect-only",
+    "docker exec web vitest --watch",
+    "docker exec -w /app web vitest -w",  # after the tool, `-w` means watch
+    "docker compose exec app pnpm exec vitest list",
     # Not a routine tool run, or a tool name that is only an argument.
     "uv pip install ruff",
     "uv run python script.py ruff",
     "uv run --with pytest python bench.py",
     "uvx --with mypy python tool.py",
     "pnpm install vitest",
+    "docker compose up -d",
+    "docker compose exec app sh -c pytest",
+    "docker compose exec pytest sh",  # the service is named pytest
+    "docker exec web sh -c pytest",
+    "docker exec pytest sh",  # the container is named pytest
+    "docker run --rm web pytest",
+    "docker exec -it web pytest",  # `-i` with `-t` needs a terminal, which hush cannot give
+    "docker exec -d web pytest",  # detached: returns at once
     "pnpm --filter web test",
     "git status",
     "ls tests",
@@ -198,6 +223,8 @@ def test_lets_other_commands_through(command):
         (["pnpm", "exec", "vitest", "run"], "vitest"),
         (["uv", "run", "--directory", "web", "ruff", "check"], "ruff"),
         (["git", "status"], None),
+        (["docker", "compose", "exec", "-T", "app", "pytest"], "pytest"),
+        (["docker", "exec", "web", "pytest"], "pytest"),
         (["pnpm", "run", "test"], None),
     ],
 )
@@ -345,7 +372,7 @@ def test_prefilter_covers_every_tool_launcher_and_package_manager(settings_file)
     """The `if` rules only save spawning the hook; a missing one means a routine command is never seen."""
     rules = _handler_rules(settings_file)
     first_words = {rule.removeprefix("Bash(").removesuffix(")").removesuffix(" *") for rule in rules}
-    wanted = set(tools.INNER_TOOLS) | set(tools._LAUNCHERS) | set(nudge.PACKAGE_MANAGERS)
+    wanted = set(tools.INNER_TOOLS) | set(tools._LAUNCHERS) | set(nudge.PACKAGE_MANAGERS) | set(tools._EXEC_FORMS)
     assert wanted - first_words == set()
     assert "python*" in first_words  # stands for python, python3, python3.12 ...
     for tool in tools.INNER_TOOLS:

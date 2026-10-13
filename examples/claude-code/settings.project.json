@@ -54,6 +54,18 @@
           },
           {
             "type": "command",
+            "if": "Bash(docker *)",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/hush_nudge.py\" || true",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "if": "Bash(docker-compose *)",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/hush_nudge.py\" || true",
+            "timeout": 5
+          },
+          {
+            "type": "command",
             "if": "Bash(npm *)",
             "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/hush_nudge.py\" || true",
             "timeout": 5
