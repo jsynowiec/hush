@@ -1,6 +1,6 @@
 [project]
 name = "hush"
-version = "0.2.0"
+version = "0.3.0"
 description = "Run a build, lint or test command and print one line on success, or file:line details on failure."
 readme = "README.md"
 license = "MIT"
