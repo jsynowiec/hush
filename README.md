@@ -48,8 +48,9 @@ The tool label in brackets (`(ruff)`, `(pytest)`) is guessed from the command, i
 | `--max-capture-mb N` | Output kept in memory and in the log. Default 10. When a run prints more, the first half and the last half are kept, because the failure summary is usually last. At least 1. |
 | `--color auto\|always\|never` | Colours the `✔ PASS` mark green and the `✗ FAIL` mark red. `auto` (the default) does it only on a terminal and not when `NO_COLOR` is set, so agents never get colour codes. The log is never coloured. |
 | `--verbose` | After the command ends, also prints its cleaned and redacted output to stderr. |
+| `--classify` | Does not run the command. Prints the tool `hush` recognises in it and exits 0, or prints nothing and exits 1. See "Ask whether a command is a known tool". |
 
-The exit code is the command's own exit code. The run counts as passed or failed by that code alone, never by what the output says. `hush` adds three codes of its own: 124 for a timeout, 126 when the command is found but cannot be run, and 127 when it is not found.
+Except with `--classify`, the exit code is the command's own exit code. The run counts as passed or failed by that code alone, never by what the output says. `hush` adds three codes of its own: 124 for a timeout, 126 when the command is found but cannot be run, and 127 when it is not found.
 
 ## Run a single tool
 
@@ -64,6 +65,25 @@ hush -- uv run ruff check src/retries.py
 ```
 
 With no `--name`, the pass line is `✔ PASS (pytest) passed (3 tests); 1.2s`, and the log is `.tmp/test-results/pytest.log` (the latest run of that tool). Give `--name` to keep separate logs for separate steps.
+
+## Ask whether a command is a known tool
+
+Other programs, such as an agent hook that decides whether to route a command through `hush`, can ask `hush` instead of keeping their own list of tools and launchers:
+
+```
+$ hush --classify -- uv run pytest tests/test_retries.py
+pytest
+$ hush --classify -- pnpm run test
+$ hush --classify -- git status
+```
+
+With `--classify`, `hush` does not run the command and writes no log. It looks for a tool the same way the label is guessed, through `uv run`, `pnpm exec`, `python -m` and the other launchers. The answer comes from the command alone, so `--tool` is ignored and `--cwd` is not checked.
+
+| Exit code | Meaning |
+| --- | --- |
+| 0 | A tool was recognised. Its bare name is printed on one line, for example `pytest`. |
+| 1 | No tool was recognised, so nothing is printed. Scripts such as `pnpm run test` and programs such as `make` and `git` end up here. It does not mean the command failed. |
+| 2 | The arguments were wrong, for example no command was given. |
 
 ## Run a whole suite
 

@@ -65,6 +65,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="colour the pass and fail marks (auto: only on a terminal, never with NO_COLOR set)",
     )
     parser.add_argument("--verbose", action="store_true", help="also print the cleaned output to stderr afterwards")
+    parser.add_argument(
+        "--classify",
+        action="store_true",
+        help="do not run COMMAND; print the tool hush recognises in it and exit 0, or print nothing and exit 1",
+    )
     parser.add_argument("command", nargs="+", help="command to run (put it after `--`)")
     return parser
 
@@ -165,6 +170,13 @@ def _display_path(path: Path) -> str:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
+    if args.classify:
+        # Answers from the command alone, so `--tool` and `--cwd` play no part.
+        name, index = tools.find_tool(args.command)
+        if index is None:
+            return 1
+        print(name)
+        return 0
     if args.cwd and not args.cwd.is_dir():
         parser.error(f"--cwd {args.cwd}: not a directory")
     child_cwd: Path = args.cwd or Path.cwd()

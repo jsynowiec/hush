@@ -791,3 +791,58 @@ def test_a_normal_length_line_still_reports_its_location_next_to_a_long_secret_l
     _, out = run("--name", "Smoke", child=child)
     assert "app.py:1" in out
     assert "the failure is here" in out
+
+
+def _classify(run: Run, *command: str, options: tuple[str, ...] = ()) -> tuple[int, str]:
+    code = cli.main(["--classify", "--log-dir", str(run.log_dir), *options, "--", *command])
+    return code, run._capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        (["uv", "run", "pytest", "tests/x.py"], "pytest"),
+        (["pnpm", "exec", "vitest", "run"], "vitest"),
+        (["python", "-m", "pytest"], "pytest"),
+        (["./node_modules/.bin/tsc", "--noEmit"], "tsc"),
+    ],
+)
+def test_classify_prints_the_recognised_tool_and_exits_0(run: Run, command: list[str], expected: str):
+    assert _classify(run, *command) == (0, f"{expected}\n")
+
+
+@pytest.mark.parametrize(
+    "command",
+    [["pnpm", "run", "test"], ["git", "status"], ["make"]],
+)
+def test_classify_prints_nothing_and_exits_1_when_no_tool_is_recognised(run: Run, command: list[str]):
+    assert _classify(run, *command) == (1, "")
+
+
+def test_classify_does_not_run_the_command_or_write_a_log(run: Run):
+    marker = run.tmp_path / "ran.txt"
+    child = f"import pathlib, sys; pathlib.Path({str(marker)!r}).write_text('x'); sys.exit(5)"
+    assert _classify(run, sys.executable, "-c", child) == (1, "")
+    assert not marker.exists()
+    assert not run.log_dir.exists()
+
+
+def test_classify_does_not_run_a_recognised_tool_either(run: Run):
+    marker = run.tmp_path / "ran.txt"
+    script = run.tmp_path / "pytest"
+    script.write_text(f"#!/bin/sh\ntouch {marker}\nexit 5\n")
+    script.chmod(0o755)
+    assert _classify(run, str(script), "-q") == (0, "pytest\n")
+    assert not marker.exists()
+    assert not run.log_dir.exists()
+
+
+def test_classify_ignores_tool_and_cwd(run: Run):
+    assert _classify(run, "git", "status", options=("--tool", "ruff")) == (1, "")
+    assert _classify(run, "uv", "run", "pytest", options=("--tool", "ruff", "--cwd", "missing-dir")) == (0, "pytest\n")
+
+
+def test_classify_still_requires_a_command(run: Run):
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(["--classify"])
+    assert exit_info.value.code == 2

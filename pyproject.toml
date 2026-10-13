@@ -1,6 +1,6 @@
 [project]
 name = "hush"
-version = "0.1.0"
+version = "0.2.0"
 description = "Run a build, lint or test command and print one line on success, or file:line details on failure."
 readme = "README.md"
 license = "MIT"
@@ -29,7 +29,7 @@ dependencies = []
 hush = "hush:main"
 
 [build-system]
-requires = ["uv_build>=0.12.23,<0.13.0"]
+requires = ["uv_build>=0.13.0,<0.14.0"]
 build-backend = "uv_build"
 
 [dependency-groups]
