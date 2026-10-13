@@ -5,3 +5,7 @@ __pycache__/
 .ruff_cache/
 .vscode/settings.json
 .claude/worktrees/
+.DS_Store
+.env
+.claude/settings.local.json
+dist/

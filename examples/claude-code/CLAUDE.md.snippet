@@ -1,0 +1,7 @@
+## Running checks
+
+- Run tests, linters, type checkers and builds through `hush`, never bare: `hush -- uv run pytest tests/test_x.py`, `hush -- pnpm exec vitest run`. It prints one line on success and `path:line` plus a short reason on failure. A hook rejects bare calls and tells you the exact command.
+- Add `--failfast` before `--` (pytest and vitest) for quick feedback while iterating. Leave it off for the final verification so every failure is listed.
+- If a repo has `make verify` or a documented verify script, use that for the whole project.
+- On failure, fix the listed locations first. Read the log in `.tmp/test-results/` only if the summary is not enough. Do not pipe a run into `head` or `tail`.
+- If you need raw output on purpose (listing tests, JSON, a dev server), prefix the command with `RAW=1`, for example `RAW=1 pytest --collect-only`.

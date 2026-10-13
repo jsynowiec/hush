@@ -1,0 +1,7 @@
+## Verifying changes
+
+- Run `make verify` (or `pnpm --silent verify`) after every change and before saying work is done. It stops at the first failing step.
+- To run one tool or a subset, keep the tool after `--`: `hush -- uv run pytest tests/test_retries.py -k duplicate`. Add `--failfast` before `--` for quick feedback while iterating; leave it off for the final run so every failure is listed. Do not run the tool bare.
+- If a step fails, fix the listed `path:line` locations first. Read the log in `.tmp/test-results/` only if the summary is not enough.
+- For raw tool output on purpose (listing tests, JSON, a dev server), prefix the command with `RAW=1`.
+- `.tmp/` must be in `.gitignore`; hush writes its logs there.

@@ -132,6 +132,8 @@ Add this to the project's `AGENTS.md` (or `CLAUDE.md`, or a skill):
 - To run one tool or a subset, call the wrapper directly and keep the tool after `--`, for example `hush --failfast -- uv run pytest tests/test_retries.py -k duplicate`. Never run the tool bare.
 ```
 
+Agents forget. For Claude Code, `examples/claude-code/` has a hook that rejects a bare test, lint or build command and tells the agent the exact `hush` command to run instead. It comes with settings for all repos or one repo, guidance snippets and tests. See [its README](examples/claude-code/README.md).
+
 ## How it finds what failed
 
 Each supported tool has a small parser (`src/hush/parsers/`) that knows its output. It gives the best explanation: test names, Expected and Received, error codes. Supported: pytest, vitest, ruff, ty, mypy, tsc, biome, vite, eslint and prettier. `pnpm`, `uv`, `npx`, `bunx` and `python -m` are looked through to find the tool behind them.

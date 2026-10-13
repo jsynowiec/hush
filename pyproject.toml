@@ -25,6 +25,11 @@ classifiers = [
 ]
 dependencies = []
 
+[project.urls]
+Homepage = "https://github.com/jsynowiec/hush"
+Repository = "https://github.com/jsynowiec/hush"
+Issues = "https://github.com/jsynowiec/hush/issues"
+
 [project.scripts]
 hush = "hush:main"
 
