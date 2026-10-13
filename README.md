@@ -17,7 +17,7 @@ Noisy build and test output wastes a coding agent's context window. `hush` runs 
       - 1
       + 2
 
-    Details: .tmp/test-results/vitest-unit-tests.log
+    Details: .tmp/test-results/vitest-unit-tests-20260512T091530-a3f9.log
 ```
 
 ## Install
@@ -43,7 +43,8 @@ The tool label in brackets (`(ruff)`, `(pytest)`) is guessed from the command, i
 | `--cwd DIR` | Runs the command in `DIR`. Reported paths and the log path stay relative to where you ran `hush`, so they make sense from the repo root. |
 | `--failfast` / `--no-failfast` | Adds the tool's own stop-at-first-failure flag. Only `pytest` (`-x`) and `vitest` (`--bail=1`) have one. Skipped if you already set a stop flag, and when the tool is not visible in the command (`pnpm run test` hides it, so put the flag in the script). Default is off. |
 | `--timeout SECONDS` | Stops the command and its child processes when time runs out. Exit code 124. Must be above 0. |
-| `--log-dir DIR` | Where full logs go. Default `.tmp/test-results`. One file per step. |
+| `--log-dir DIR` | Where full logs go. Default `.tmp/test-results`. Every run writes its own file, named after the step plus the run's UTC start time and 4 random characters, for example `pytest-unit-tests-20260512T091530-a3f9.log`, so runs of the same step never overwrite each other. |
+| `--keep-logs N` | After each run, keeps the newest `N` logs in `--log-dir` (by modification time, across all steps) and deletes the rest. Default 40. At least 1. Only files named like `hush` logs are ever deleted, and the log of the current run never is. A suite with more steps than `N` loses the logs of its earliest steps, so raise `N` for it. A failure while deleting is ignored. Nothing is deleted when the log could not be written. |
 | `--max-failures N` | Failures to list before saying "and N more". Default 10. At least 1. |
 | `--max-capture-mb N` | Output kept in memory and in the log. Default 10. When a run prints more, the first half and the last half are kept, because the failure summary is usually last. At least 1. |
 | `--color auto\|always\|never` | Colours the `✔ PASS` mark green and the `✗ FAIL` mark red. `auto` (the default) does it only on a terminal and not when `NO_COLOR` is set, so agents never get colour codes. The log is never coloured. |
@@ -64,7 +65,7 @@ hush -- pnpm exec vitest run src/math.test.ts
 hush -- uv run ruff check src/retries.py
 ```
 
-With no `--name`, the pass line is `✔ PASS (pytest) passed (3 tests); 1.2s`, and the log is `.tmp/test-results/pytest.log` (the latest run of that tool). Give `--name` to keep separate logs for separate steps.
+With no `--name`, the pass line is `✔ PASS (pytest) passed (3 tests); 1.2s`, and the log is `.tmp/test-results/pytest-<date>T<time>-<id>.log`, unique to this run. Give `--name` to put the step in the file name, which makes the logs easier to tell apart.
 
 ## Ask whether a command is a known tool
 
@@ -175,7 +176,7 @@ What it does to limit the damage:
   | 120,000 lines of 100 characters | about 120 MB |
   | 500 long lines holding 285,000 file references | about 100 MB |
   | 6 million one-character lines | about 600 MB |
-- The log is written once, after the run, already cleaned and redacted. It goes through a private temporary file (mode 0600) that replaces the log in one step. A symlink planted at the log path is replaced, not followed. hush does not check that `--log-dir` itself is a real directory, so do not point it somewhere an untrusted repo controls.
+- The log is written once, after the run, already cleaned and redacted. It goes through a private temporary file (mode 0600) that replaces the log in one step. A symlink planted at the log path is replaced, not followed. Pruning (see `--keep-logs`) deletes only regular files whose names match the `hush` log pattern, and never follows symlinks or enters subdirectories. hush does not check that `--log-dir` itself is a real directory, so do not point it somewhere an untrusted repo controls.
 - Cleaning removes terminal escape codes, resolves `\r` overwrites, and removes control characters and invisible characters (zero-width, bidi controls, and the Unicode tag block that can hide text from people but not from a model). Lines are cut at 4000 characters. A line that is about to be cut is redacted first, so a long secret is not left half visible.
 - Redaction replaces known token shapes (GitHub, GitLab, AWS, Google, npm, Slack, Stripe, JWTs, bearer and basic auth, private key blocks), credentials inside URLs, and the values of environment variables named like secrets (`TOKEN`, `SECRET`, `PASSWORD`, `PASS`, `PWD`, `KEY`, `AUTH`, `DSN`, `API_KEY` and so on, including their JSON and repr forms). It covers the explanation lines, the part of a location after `::` (a test id can contain anything), the log and `--verbose` output. It is a best effort, not a guarantee.
 - Redaction runs in two stages. Private key blocks and environment values that contain a newline are redacted first, over the whole output, because they span lines. Everything else is redacted after parsing, so a file name that happens to match a secret is not damaged.

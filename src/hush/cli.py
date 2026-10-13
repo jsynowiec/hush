@@ -4,17 +4,22 @@ import hashlib
 import os
 import posixpath
 import re
+import secrets
 import sys
 import tempfile
 from collections.abc import Callable, Mapping, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 
 from hush import extract, parsers, report, runner, sanitize, tools
 
 DEFAULT_LOG_DIR = ".tmp/test-results"
+DEFAULT_KEEP_LOGS = 40
 DEFAULT_MAX_CAPTURE_MB = 10
 DEFAULT_MAX_FAILURES = 10
 MAX_LOG_NAME_CHARS = 100
+# `<slug>-<YYYYMMDD>T<HHMMSS>-<4 hex>.log`. Pruning only ever touches names that match.
+LOG_NAME = re.compile(r"[a-z0-9-]+-\d{8}T\d{6}-[0-9a-f]{4}\.log")
 
 
 def _positive_int(text: str) -> int:
@@ -56,6 +61,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="stop the command and its child processes after this many seconds",
     )
     parser.add_argument("--log-dir", default=DEFAULT_LOG_DIR, help="where full logs are written")
+    parser.add_argument(
+        "--keep-logs",
+        type=_positive_int,
+        default=DEFAULT_KEEP_LOGS,
+        help="after each run, keep this many of the newest logs in --log-dir and delete the rest",
+    )
     parser.add_argument("--max-failures", type=_positive_int, default=DEFAULT_MAX_FAILURES)
     parser.add_argument("--max-capture-mb", type=_positive_int, default=DEFAULT_MAX_CAPTURE_MB)
     parser.add_argument(
@@ -78,12 +89,17 @@ def _slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-") or "run"
 
 
-def _log_name(prefix: str, tool: str, name: str) -> str:
+def _run_id() -> str:
+    """UTC time to the second plus 4 random hex digits, so concurrent runs of one step do not share a log."""
+    return f"{datetime.now(UTC):%Y%m%dT%H%M%S}-{secrets.token_hex(2)}"
+
+
+def _log_name(prefix: str, tool: str, name: str, run_id: str) -> str:
     slug = _slug(f"{prefix} {tool} {name}")
     if len(slug) > MAX_LOG_NAME_CHARS:
         digest = hashlib.sha256(slug.encode()).hexdigest()[:8]
         slug = f"{slug[: MAX_LOG_NAME_CHARS - 9].rstrip('-')}-{digest}"
-    return f"{slug}.log"
+    return f"{slug}-{run_id}.log"
 
 
 def _child_env(environ: Mapping[str, str]) -> dict[str, str]:
@@ -158,6 +174,31 @@ def _write_log(path: Path, content: str) -> None:
         raise
 
 
+def _prune_logs(current: Path, keep: int) -> None:
+    """Delete all but the newest `keep` hush logs in the directory of `current`, which is always kept.
+
+    Only names that match `LOG_NAME` are candidates. Failures are ignored: another run may be deleting
+    the same files, and pruning must not change the outcome of this run.
+    """
+    with contextlib.suppress(OSError):
+        logs: list[tuple[bool, int, str]] = []
+        with os.scandir(current.parent) as entries:
+            for entry in entries:
+                if not LOG_NAME.fullmatch(entry.name):
+                    continue
+                try:
+                    if entry.is_file(follow_symlinks=False):
+                        mtime = entry.stat(follow_symlinks=False).st_mtime_ns
+                        logs.append((entry.name == current.name, mtime, entry.name))
+                except OSError:
+                    continue
+        # The run's own log sorts first whatever its timestamp, so equal timestamps cannot get it deleted.
+        logs.sort(reverse=True)
+        for _, _, name in logs[keep:]:
+            with contextlib.suppress(OSError):
+                os.unlink(current.parent / name)
+
+
 def _display_path(path: Path) -> str:
     if not path.is_absolute():
         return path.as_posix()
@@ -186,7 +227,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     tool = args.tool or inferred_tool
     command = tools.with_failfast(args.command, inferred_tool, tool_index) if args.failfast else list(args.command)
     label = f"({tool}) {args.name}".rstrip()
-    log_path = Path(args.log_dir) / _log_name(prefix, tool, args.name)
+    log_path = Path(args.log_dir) / _log_name(prefix, tool, args.name, _run_id())
     redactor = sanitize.Redactor(os.environ)
 
     result = runner.run_command(
@@ -202,6 +243,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         child_cwd,
     )
     log_note = _save_log(log_path, redactor.redact(_log_contents(command, text, result)))
+    if log_note is None:
+        _prune_logs(log_path, args.keep_logs)
     if args.verbose:
         print(redactor.redact(text), file=sys.stderr)
 

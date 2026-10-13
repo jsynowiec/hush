@@ -12,23 +12,41 @@ import pytest
 
 from hush import cli
 
+# The run id every log name ends with, written out here so the tests do not use the pattern in cli.py.
+RUN_ID = r"\d{8}T\d{6}-[0-9a-f]{4}"
+
 
 class Run:
     def __init__(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
         self.tmp_path = tmp_path
         self._capsys = capsys
+        self._logs: list[Path] = []
 
     def __call__(self, *args: str, child: str | list[str]) -> tuple[int, str]:
         command = ["--", sys.executable, "-c", child] if isinstance(child, str) else ["--", *child]
+        before = self._listing()
         code = cli.main(["--tool", "demo", "--log-dir", str(self.log_dir), *args, *command])
+        self._logs += sorted(self._listing() - before)
         return code, self._capsys.readouterr().out
+
+    def _listing(self) -> set[Path]:
+        return set(self.log_dir.glob("*.log")) if self.log_dir.is_dir() else set()
 
     @property
     def log_dir(self) -> Path:
         return self.tmp_path / "logs"
 
-    def log(self, name: str = "demo-smoke.log") -> str:
-        return (self.log_dir / name).read_text()
+    def log(self, slug: str = "demo-smoke") -> str:
+        """The text of the log that the latest run of this slug wrote."""
+        paths = [path for path in self._logs if re.fullmatch(f"{re.escape(slug)}-{RUN_ID}\\.log", path.name)]
+        return paths[-1].read_text()
+
+
+def _only_log(log_dir: Path) -> Path:
+    """The one log in a directory, for tests that run hush once."""
+    (path,) = log_dir.glob("*.log")
+    assert re.fullmatch(rf"demo-smoke-{RUN_ID}\.log", path.name)
+    return path
 
 
 @pytest.fixture
@@ -57,7 +75,7 @@ def test_color_always_marks_a_pass_green_and_a_failure_red(run: Run):
         child="import sys; print('app.py:1: something broke here'); sys.exit(3)",
     )  # fmt: skip
     assert "\x1b[31m✗ FAIL\x1b[0m (demo)" in failed
-    assert "\x1b[" not in run.log("demo.log")
+    assert "\x1b[" not in run.log("demo")
 
 
 def test_colour_is_off_when_not_a_terminal_unless_asked_for(run: Run):
@@ -77,7 +95,9 @@ def test_failure_reports_location_reason_and_log_path(run: Run):
     assert "✗ FAIL (demo) Smoke failed;" in out
     assert "app.py:1" in out
     assert "something broke here" in out
-    assert "Details: logs/demo-smoke.log" in out
+    details = re.search(rf"Details: (logs/demo-smoke-{RUN_ID}\.log)\n", out)
+    assert details
+    assert (run.tmp_path / details.group(1)).is_file()
 
 
 def test_failure_without_references_shows_the_output_tail(run: Run):
@@ -253,8 +273,9 @@ def test_cwd_runs_the_command_there_and_reports_paths_from_the_caller(run: Run):
     child = "import os, sys; print('app.py:1: broke in', os.getcwd()); sys.exit(1)"
     _, out = run("--name", "Smoke", "--cwd", "module-a", child=child)
     assert "module-a/app.py:1" in out
-    assert "Details: logs/module-a-demo-smoke.log" in out
-    assert (run.log_dir / "module-a-demo-smoke.log").is_file()
+    details = re.search(rf"Details: (logs/module-a-demo-smoke-{RUN_ID}\.log)\n", out)
+    assert details
+    assert (run.tmp_path / details.group(1)).is_file()
 
 
 def test_cwd_must_be_a_directory(run: Run):
@@ -308,21 +329,162 @@ def test_a_very_long_name_still_gets_a_valid_log_file(run: Run):
     names = [path.name for path in run.log_dir.iterdir()]
     assert code == 1
     assert len(names) == 1
-    assert len(names[0]) < 120
-    assert names[0].endswith(".log")
+    # 100 characters of slug, then "-", the 20-character run id and ".log".
+    assert len(names[0]) == 125
+    assert re.fullmatch(rf"demo-n{{86}}-[0-9a-f]{{8}}-{RUN_ID}\.log", names[0])
 
 
-def test_log_is_private_and_a_planted_symlink_is_replaced_not_followed(run: Run):
+def test_log_is_private_and_a_planted_symlink_is_replaced_not_followed(run: Run, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(cli, "_run_id", lambda: "20260101T000000-abcd")
     run.log_dir.mkdir()
     victim = run.tmp_path / "victim.txt"
     victim.write_text("ORIGINAL")
-    (run.log_dir / "demo-smoke.log").symlink_to(victim)
+    (run.log_dir / "demo-smoke-20260101T000000-abcd.log").symlink_to(victim)
     run("--name", "Smoke", child="raise SystemExit(1)")
-    log = run.log_dir / "demo-smoke.log"
+    log = run.log_dir / "demo-smoke-20260101T000000-abcd.log"
     assert victim.read_text() == "ORIGINAL"
     assert not log.is_symlink()
     assert (log.stat().st_mode & 0o777) == 0o600
     assert list(run.log_dir.glob(".hush-*")) == []
+
+
+def test_each_run_writes_its_own_log(run: Run):
+    _, first = run("--name", "Smoke", child="raise SystemExit(1)")
+    _, second = run("--name", "Smoke", child="raise SystemExit(1)")
+    names = sorted(path.name for path in run.log_dir.iterdir())
+    assert len(names) == 2
+    assert all(re.fullmatch(rf"demo-smoke-{RUN_ID}\.log", name) for name in names)
+    # Each report names the file its own run wrote, and the two runs wrote different files.
+    reported = [re.search(r"Details: (\S+)\n", out) for out in (first, second)]
+    assert all(reported)
+    assert sorted(Path(m.group(1)).name for m in reported if m) == names
+    assert all((run.tmp_path / m.group(1)).is_file() for m in reported if m)
+
+
+def _make_logs(log_dir: Path, mtimes: dict[str, int]) -> None:
+    log_dir.mkdir(exist_ok=True)
+    for name, mtime in mtimes.items():
+        (log_dir / name).write_text("old")
+        os.utime(log_dir / name, (mtime, mtime))
+
+
+def test_pruning_keeps_the_newest_logs_across_all_steps_and_leaves_other_files_alone(run: Run):
+    old_a = "demo-smoke-20250101T000000-aaaa.log"
+    old_b = "other-step-20250101T000001-bbbb.log"
+    mid = "demo-smoke-20250101T000002-cccc.log"
+    new = "other-step-20250101T000003-dddd.log"
+    # By file name the order is old_a, old_b, mid, new. By mtime old_b is the oldest, so only mtime can decide.
+    _make_logs(run.log_dir, {old_a: 1_000_000_300, old_b: 1_000_000_100, mid: 1_000_000_400, new: 1_000_000_500})
+    others = {"notes.log": 1, "pytest.log": 1, ".hush-x.tmp": 1}
+    _make_logs(run.log_dir, others)
+    (run.log_dir / "subdir-20250101T000000-eeee.log").mkdir()
+    code, _ = run("--name", "Smoke", "--keep-logs", "3", child="pass")
+    assert code == 0
+    # The newest three are the run's own log, `new` and `mid`.
+    (own,) = run._logs
+    assert {path.name for path in run.log_dir.iterdir()} == {
+        own.name,
+        new,
+        mid,
+        *others,
+        "subdir-20250101T000000-eeee.log",
+    }
+
+
+def test_the_log_just_written_survives_keep_logs_1_even_when_another_log_is_newer(run: Run):
+    future = "demo-smoke-29990101T000000-ffff.log"
+    _make_logs(run.log_dir, {future: 32_000_000_000})
+    run("--name", "Smoke", "--keep-logs", "1", child="pass")
+    (own,) = run._logs
+    assert [path.name for path in run.log_dir.iterdir()] == [own.name]
+
+
+def test_pruning_does_not_touch_a_symlink_that_has_a_log_name(run: Run):
+    target = run.tmp_path / "precious.txt"
+    target.write_text("keep me")
+    run.log_dir.mkdir()
+    link = run.log_dir / "demo-smoke-20250101T000000-aaaa.log"
+    link.symlink_to(target)
+    run("--name", "Smoke", "--keep-logs", "1", child="pass")
+    assert link.is_symlink()
+    assert target.read_text() == "keep me"
+
+
+def _without_timing(out: str) -> str:
+    return re.sub(r"\d+\.\ds", "Ns", out)
+
+
+def test_a_failing_prune_does_not_change_the_output_or_exit_code(run: Run, monkeypatch: pytest.MonkeyPatch):
+    child = "import sys; print('app.py:1: something broke here'); sys.exit(3)"
+    (run.tmp_path / "app.py").write_text("")
+    old = ["demo-smoke-20250101T000000-aaaa.log", "demo-smoke-20250101T000001-bbbb.log"]
+    _make_logs(run.log_dir, {old[0]: 1, old[1]: 2})
+    # A fixed run id makes the reported log path the same in both runs.
+    monkeypatch.setattr(cli, "_run_id", lambda: "20260101T000000-abcd")
+    baseline_code, baseline_out = run("--name", "Smoke", "--keep-logs", "100", child=child)
+    assert baseline_code == 3
+    assert "something broke here" in baseline_out
+
+    def refuse(path: object) -> None:
+        raise OSError("read-only")
+
+    monkeypatch.setattr(os, "unlink", refuse)
+    code, out = run("--name", "Smoke", "--keep-logs", "1", child=child)
+    assert code == baseline_code
+    assert _without_timing(out) == _without_timing(baseline_out)
+    # Pruning did try to delete, and could not.
+    assert all((run.log_dir / name).exists() for name in old)
+
+
+def test_a_log_that_vanishes_during_pruning_is_ignored(run: Run, monkeypatch: pytest.MonkeyPatch):
+    _make_logs(run.log_dir, {"demo-smoke-20250101T000000-aaaa.log": 1})
+
+    def vanished(path: object) -> None:
+        raise FileNotFoundError(path)
+
+    monkeypatch.setattr(os, "unlink", vanished)
+    code, out = run("--name", "Smoke", "--keep-logs", "1", child="pass")
+    assert code == 0
+    assert "✔ PASS (demo) Smoke passed" in out
+
+
+def test_no_pruning_when_the_log_could_not_be_written(run: Run, monkeypatch: pytest.MonkeyPatch):
+    def refuse(path: object, content: str) -> None:
+        raise OSError(13, "Permission denied")
+
+    _make_logs(run.log_dir, {"demo-smoke-20250101T000000-aaaa.log": 1, "demo-smoke-20250101T000001-bbbb.log": 2})
+    monkeypatch.setattr(cli, "_write_log", refuse)
+    code, out = run("--name", "Smoke", "--keep-logs", "1", child="raise SystemExit(1)")
+    assert code == 1
+    assert "Details: not written" in out
+    assert len(list(run.log_dir.iterdir())) == 2
+
+
+def test_a_failed_run_prunes_too(run: Run):
+    _make_logs(run.log_dir, {"demo-smoke-20250101T000000-aaaa.log": 1, "demo-smoke-20250101T000001-bbbb.log": 2})
+    code, _ = run("--name", "Smoke", "--keep-logs", "2", child="raise SystemExit(1)")
+    assert code == 1
+    (own,) = run._logs
+    assert {path.name for path in run.log_dir.iterdir()} == {"demo-smoke-20250101T000001-bbbb.log", own.name}
+
+
+@pytest.mark.parametrize("value", ["0", "-3", "x"])
+def test_keep_logs_must_be_a_whole_number_of_at_least_1(run: Run, capsys: pytest.CaptureFixture[str], value: str):
+    with pytest.raises(SystemExit) as exit_info:
+        run("--keep-logs", value, child="pass")
+    assert exit_info.value.code == 2
+    # Names the option, so an unknown-option error does not pass for this.
+    assert "argument --keep-logs: " in capsys.readouterr().err
+
+
+def test_the_default_keeps_the_newest_40_logs(run: Run):
+    _make_logs(run.log_dir, {f"demo-smoke-20250101T0000{i:02d}-aaaa.log": 1000 + i for i in range(45)})
+    run("--name", "Smoke", child="pass")
+    (own,) = run._logs
+    names = {path.name for path in run.log_dir.iterdir()}
+    assert len(names) == 40
+    # Of the 45 old logs, the 39 newest stay (indexes 6 to 44) next to the run's own.
+    assert names == {own.name, *(f"demo-smoke-20250101T0000{i:02d}-aaaa.log" for i in range(6, 45))}
 
 
 def test_a_secret_that_is_also_part_of_a_file_name_does_not_hide_the_location(
@@ -430,7 +592,7 @@ def test_only_the_working_directory_prefix_is_removed_from_absolute_paths(
     child = f"print('{inside}'); print('{other}'); raise SystemExit(1)"
     _, out = run("--name", "Smoke", "--cwd", "module-a", child=child)
     assert "module-a/src/x.ts:1" in out
-    assert "packages/module-a/src/x.ts:2" in run.log("module-a-demo-smoke.log")
+    assert "packages/module-a/src/x.ts:2" in run.log("module-a-demo-smoke")
 
 
 def test_paths_outside_the_working_directory_are_not_reported_as_locations(run: Run):
@@ -541,7 +703,7 @@ def test_interrupting_hush_stops_the_command_and_leaves_only_a_redacted_log(
     deadline = time.monotonic() + 5
     while _is_alive(child_pid) and time.monotonic() < deadline:
         time.sleep(0.05)
-    log = (tmp_path / "logs/demo-smoke.log").read_text()
+    log = _only_log(tmp_path / "logs").read_text()
     assert proc.returncode == exit_code
     assert time.monotonic() - started < 8
     assert "interrupted" in out
@@ -594,7 +756,7 @@ def test_a_second_signal_kills_a_command_that_ignores_the_first_and_still_report
     assert time.monotonic() - second_sent < 1.5
     assert "interrupted" in out
     assert "Traceback" not in err
-    assert "interrupted by signal" in (tmp_path / "logs/demo-smoke.log").read_text()
+    assert "interrupted by signal" in _only_log(tmp_path / "logs").read_text()
     assert not _is_alive(child_pid)
 
 
@@ -626,7 +788,7 @@ publish('child.pid', str(os.getpid()))
     assert proc.returncode == 130
     assert "interrupted" in out
     assert "Traceback" not in err
-    assert (tmp_path / "logs/demo-smoke.log").is_file()
+    assert _only_log(tmp_path / "logs").is_file()
     assert not _is_alive(grandchild_pid)
 
 
@@ -687,7 +849,7 @@ def test_a_failing_command_is_not_reported_as_passed_when_sigchld_is_ignored(tmp
     assert done.returncode == 3
     assert "✗ FAIL (demo) Smoke failed;" in done.stdout
     assert "passed" not in done.stdout
-    assert "exit code: 3" in (tmp_path / "l/demo-smoke.log").read_text()
+    assert "exit code: 3" in _only_log(tmp_path / "l").read_text()
 
 
 def test_a_path_component_over_255_characters_is_not_a_location(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -773,11 +935,12 @@ def test_a_secret_longer_than_a_clipped_line_does_not_leak_its_first_part(
         + [sys.executable, "-c", child]
     )
     captured = capsys.readouterr()
-    outputs = (run.log(), captured.out, captured.err)
+    log = _only_log(run.log_dir).read_text()
+    outputs = (log, captured.out, captured.err)
     assert code == 1
     assert _leaked_slices(long_secret, *outputs) == []
     assert _leaked_slices(straddling_secret, *outputs) == []
-    assert "[REDACTED]" in run.log()
+    assert "[REDACTED]" in log
 
 
 def test_a_normal_length_line_still_reports_its_location_next_to_a_long_secret_line(
