@@ -542,7 +542,7 @@ def test_a_private_key_block_after_a_short_location_line_is_masked_in_the_report
         "import sys\n"
         "print('app.py:1')\n"
         "print('bad key: -----BEGIN RSA PRIVATE KEY-----')\n"
-        "print('MIIEowIBAAKCAQEAfirstbodyline')\n"
+        "print('MIIE' + 'owIBAAKCAQEAfirstbodyline')\n"
         "print('qrstuvwxyz0123456789secondbodyline')\n"
         "print('-----END RSA PRIVATE KEY-----')\n"
         "sys.exit(1)"

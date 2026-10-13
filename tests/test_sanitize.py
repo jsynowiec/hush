@@ -87,13 +87,13 @@ def test_only_lines_that_need_clipping_are_redacted_during_normalize():
 @pytest.mark.parametrize(
     "secret",
     [
-        "glpat-abcdefghij0123456789",
-        "AIzaSyA-abcdefghijklmnopqrstuvwxyz012345",
+        "glpat-" + "abcdefghij0123456789",
+        "AIza" + "SyA-abcdefghijklmnopqrstuvwxyz012345",
         "Authorization: Basic dXNlcjpwYXNzd29yZA==",
-        "sk_live_abcdefghijklmnop1234",
-        "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abcdefghijk",
+        "sk_live_" + "abcdefghijklmnop1234",
+        "eyJ" + "hbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abcdefghijk",
         "npm_" + "a" * 36,
-        "xoxe-1234567890-abcdef",
+        "xoxe-" + "1234567890-abcdef",
     ],
 )
 def test_more_token_shapes_are_redacted(secret: str):
