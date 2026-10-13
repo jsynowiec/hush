@@ -327,10 +327,11 @@ def test_docker_exec_env_secrets_are_masked_in_the_log_and_the_output(run: Run):
     assert "connecting with [REDACTED] and short7" in log
 
 
-def _failing_docker(run: Run) -> str:
-    """A stand-in `docker` that fails with a path relative to the container's working directory."""
-    docker = run.tmp_path / "docker"
-    docker.write_text("#!/bin/sh\necho 'tests/test_a.py:3: AssertionError: the total is wrong'\nexit 1\n")
+def _failing_docker(run: Run, *paths: str, binary: str = "docker", message: str = "the total is wrong") -> str:
+    """A stand-in `docker` that fails once per path, by default with a path relative to the working directory."""
+    docker = run.tmp_path / binary
+    echoes = "".join(f"echo '{path}:3: AssertionError: {message}'\n" for path in paths or ("tests/test_a.py",))
+    docker.write_text(f"#!/bin/sh\n{echoes}exit 1\n")
     docker.chmod(0o755)
     return str(docker)
 
@@ -361,6 +362,186 @@ def test_docker_exec_workdir_is_mapped_to_a_host_folder(
         (run.tmp_path / name).write_text("")
     _, out = run("--name", "Smoke", *hush_options, child=[_failing_docker(run), "exec", "-w", workdir, "web", "pytest"])
     assert f"\n    {expected}\n    Reason:\n" in out
+
+
+@pytest.mark.parametrize(
+    ("binary", "exec_words"),
+    [
+        ("docker", ["container", "exec"]),
+        ("docker", ["compose", "exec", "-T"]),
+        ("docker-compose", ["exec", "-T"]),
+    ],
+)
+@pytest.mark.parametrize("workdir_option", [["-w", "/workspace/backend"], ["-w=/workspace/backend"]])
+def test_docker_container_and_compose_exec_map_the_workdir_like_docker_exec(
+    binary: str, exec_words: list[str], workdir_option: list[str], run: Run
+):
+    (run.tmp_path / "backend/tests").mkdir(parents=True)
+    (run.tmp_path / "backend/tests/test_a.py").write_text("")
+    command = [_failing_docker(run, binary=binary), *exec_words, *workdir_option, "web", "pytest"]
+    _, out = run("--name", "Smoke", child=command)
+    assert "\n    backend/tests/test_a.py:3\n    Reason:\n" in out
+
+
+@pytest.mark.parametrize(
+    ("workdir", "host_files", "inside", "outside"),
+    [
+        # The whole `-w` path is a host folder, so there is no container folder above it to treat as the mount.
+        ("/workspace/backend", ["workspace/backend/x.py", "workspace/shared/x.py"], "x.py", "/workspace/shared/x.py"),
+        # A one-part `-w` has nothing above it either.
+        ("/app", ["app/x.py", "lib/foo.py"], "x.py", "/lib/foo.py"),
+    ],
+)
+def test_docker_exec_absolute_paths_are_not_mapped_when_the_workdir_leaves_no_mount_root(
+    workdir: str, host_files: list[str], inside: str, outside: str, run: Run
+):
+    for name in host_files:
+        (run.tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (run.tmp_path / name).write_text("")
+    command = [_failing_docker(run, inside, outside), "exec", "-w", workdir, "web", "pytest"]
+    run("--name", "Smoke", child=command)
+    slug = f"{workdir.strip('/').replace('/', '-')}-demo-smoke"
+    assert f"{outside}:3: AssertionError: the total is wrong" in run.log(slug)
+
+
+@pytest.mark.parametrize(
+    ("workdir", "sentence", "expected"),
+    [
+        ("/workspace/backend", "see /workspace/backend/lib/y.py.", "see lib/y.py."),
+        ("/workspace/backend", "see /workspace/shared/x.py.", "see ../shared/x.py."),
+    ],
+)
+def test_docker_exec_a_full_stop_after_a_path_is_not_part_of_the_path(
+    workdir: str, sentence: str, expected: str, run: Run
+):
+    for name in ["backend/tests/test_a.py", "backend/lib/y.py", "shared/x.py"]:
+        (run.tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (run.tmp_path / name).write_text("")
+    command = [_failing_docker(run, "tests/test_a.py", message=sentence), "exec", "-w", workdir, "web", "pytest"]
+    run("--name", "Smoke", child=command)
+    assert f"AssertionError: {expected}\n" in run.log("backend-demo-smoke")
+
+
+def test_docker_exec_workdir_is_stripped_only_from_paths_that_are_files_on_the_host(run: Run):
+    # A library path under the working directory has no host file, so the log keeps where it really is.
+    (run.tmp_path / "tests").mkdir()
+    (run.tmp_path / "tests/test_a.py").write_text("")
+    command = [
+        _failing_docker(run, "/usr/local/tests/test_a.py", "/usr/local/lib/pkg/x.py"),
+        "exec",
+        "-w",
+        "/usr/local",
+        "web",
+        "pytest",
+    ]
+    _, out = run("--name", "Smoke", child=command)
+    assert "\n    tests/test_a.py:3\n    Reason:\n" in out
+    log = run.log()
+    assert "/usr/local/lib/pkg/x.py:3: AssertionError" in log
+    assert "\ntests/test_a.py:3: AssertionError" in log
+
+
+@pytest.mark.parametrize(
+    ("workdir", "host_file", "printed", "expected"),
+    [
+        # Python tracebacks print absolute paths. Under the working directory they map like relative ones.
+        ("/workspace/backend", "backend/app/x.py", "/workspace/backend/app/x.py", "backend/app/x.py:3"),
+        # A working directory with no host folder of that name is taken as the project folder itself.
+        ("/app", "src/x.py", "/app/src/x.py", "src/x.py:3"),
+        ("/app/", "x.py", "/app/x.py", "x.py:3"),
+    ],
+)
+def test_docker_exec_absolute_paths_under_the_workdir_are_mapped(
+    workdir: str, host_file: str, printed: str, expected: str, run: Run
+):
+    (run.tmp_path / host_file).parent.mkdir(parents=True, exist_ok=True)
+    (run.tmp_path / host_file).write_text("")
+    _, out = run("--name", "Smoke", child=[_failing_docker(run, printed), "exec", "-w", workdir, "web", "pytest"])
+    assert f"\n    {expected}\n    Reason:\n" in out
+
+
+@pytest.mark.parametrize(
+    ("hush_options", "workdir", "host_files", "inside", "printed", "expected"),
+    [
+        # A sibling of the working directory, in the same mounted tree.
+        (
+            [],
+            "/workspace/backend",
+            ["backend/app/x.py", "shared/x.py"],
+            "app/x.py",
+            "/workspace/shared/x.py",
+            "shared/x.py:3",
+        ),
+        # Two folders down: the mount is `/ws`, so the file is two levels up from the working directory.
+        ([], "/ws/a/b", ["a/b/x.py", "shared/lib/x.py"], "x.py", "/ws/shared/lib/x.py", "shared/lib/x.py:3"),
+        (
+            ["--cwd", "proj"],
+            "/ws/api",
+            ["proj/api/x.py", "proj/shared/x.py"],
+            "x.py",
+            "/ws/shared/x.py",
+            "proj/shared/x.py:3",
+        ),
+    ],
+)
+def test_docker_exec_absolute_paths_in_the_mounted_tree_are_mapped(
+    hush_options: list[str], workdir: str, host_files: list[str], inside: str, printed: str, expected: str, run: Run
+):
+    for name in host_files:
+        (run.tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (run.tmp_path / name).write_text("")
+    # The file under the working directory is found in the guessed folder, which is what makes the guess believable.
+    command = [_failing_docker(run, inside, printed), "exec", "-w", workdir, "web", "pytest"]
+    _, out = run("--name", "Smoke", *hush_options, child=command)
+    assert f"\n    {expected}\n" in out
+    assert printed not in out
+
+
+def test_docker_exec_absolute_paths_in_the_mounted_tree_that_are_missing_on_the_host_are_left_as_printed(run: Run):
+    (run.tmp_path / "backend").mkdir()
+    (run.tmp_path / "backend/x.py").write_text("")
+    (run.tmp_path / "x.py").write_text("")
+    command = [
+        _failing_docker(run, "x.py", "/workspace/shared/x.py"),
+        "exec",
+        "-w",
+        "/workspace/backend",
+        "web",
+        "pytest",
+    ]
+    run("--name", "Smoke", child=command)
+    assert "/workspace/shared/x.py:3: AssertionError: the total is wrong" in run.log("backend-demo-smoke")
+
+
+def test_docker_exec_mount_root_is_not_trusted_when_only_the_folder_name_matches(run: Run):
+    # `app/` exists on the host, but no reported file was found in it, so nothing says `/usr/src` is the host's root.
+    (run.tmp_path / "app").mkdir()
+    (run.tmp_path / "lib").mkdir()
+    (run.tmp_path / "lib/foo.py").write_text("")
+    command = [_failing_docker(run, "/usr/src/lib/foo.py"), "exec", "-w", "/usr/src/app", "web", "pytest"]
+    _, out = run("--name", "Smoke", child=command)
+    assert "\n    Reason:\n      /usr/src/lib/foo.py:3: AssertionError: the total is wrong\n" in out
+
+
+@pytest.mark.parametrize("printed", ["/other/app/x.py", "/workspace/backendish/app/x.py"])
+def test_docker_exec_absolute_paths_outside_the_workdir_are_left_alone(printed: str, run: Run):
+    (run.tmp_path / "backend/app").mkdir(parents=True)
+    (run.tmp_path / "backend/app/x.py").write_text("")
+    command = [_failing_docker(run, printed), "exec", "-w", "/workspace/backend", "web", "pytest"]
+    _, out = run("--name", "Smoke", child=command)
+    assert f"\n    Reason:\n      {printed}:3: AssertionError: the total is wrong\n" in out
+
+
+@pytest.mark.parametrize("printed", ["tests/test_a.py", "/app/tests/test_a.py"])
+def test_docker_exec_workdir_matching_an_unrelated_host_folder_still_finds_files_from_the_project_root(
+    printed: str, run: Run
+):
+    # A project with an `app/` package, mounted whole at `/app`: the folder name matches by chance.
+    (run.tmp_path / "app").mkdir()
+    (run.tmp_path / "tests").mkdir()
+    (run.tmp_path / "tests/test_a.py").write_text("")
+    _, out = run("--name", "Smoke", child=[_failing_docker(run, printed), "exec", "-w", "/app", "web", "pytest"])
+    assert "\n    tests/test_a.py:3\n    Reason:\n" in out
 
 
 @pytest.mark.parametrize("docker_args", [["exec", "-w", "/workspace/frontend"], ["exec"]])

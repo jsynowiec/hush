@@ -1,5 +1,6 @@
 import argparse
 import contextlib
+import functools
 import hashlib
 import os
 import posixpath
@@ -119,29 +120,89 @@ def _relativize(text: str, directory: Path) -> str:
     return text
 
 
-def _host_workdir(container_dir: str | None, base: Path) -> str:
-    """The folder under `base` that a container working directory most likely mounts, or "" for none.
+def _host_workdir(container_dir: str | None, base: Path) -> tuple[str, str]:
+    """The folder under `base` that a container working directory most likely mounts, and the container
+    folder above it where the host tree is mounted. Both are "" when there is no match.
 
     Tools print paths relative to the working directory the command ran in, which for a container
     command is the directory the command line sets there. The mount is not known, so this takes the
     longest tail of the container path that is a folder under `base`: `/workspace/backend` gives
-    `workspace/backend` if that exists, else `backend`. It is a guess, but a reported file must
-    still exist there to be named.
+    `workspace/backend` if that exists, else `backend` (mounted at `/workspace`). It is a guess, but a
+    reported file must still exist there to be named.
     """
-    if not container_dir or not posixpath.isabs(container_dir):
-        return ""
-    parts = [part for part in posixpath.normpath(container_dir).split("/") if part]
+    if not container_dir:
+        return "", ""
     root = Path.cwd().resolve()
+    parts = [part for part in container_dir.split("/") if part]
     for start in range(len(parts)):
         tail = "/".join(parts[start:])
-        # Python 3.12 and 3.13 raise on over-long names, unreadable directories and symlink loops.
-        try:
-            candidate = (base / tail).resolve()
-            if candidate.is_relative_to(root) and candidate.is_dir():
-                return tail
-        except (OSError, RuntimeError, ValueError):
-            continue
-    return ""
+        if _is_inside(base / tail, root, Path.is_dir):
+            return tail, ("/" + "/".join(parts[:start]) if start else "")
+    return "", ""
+
+
+_PATH = r"[\w@+.-]+(?:/[\w@+.-]+)*"
+
+
+def _rewrite_under(text: str, prefix: str, target: Callable[[str], str | None]) -> str:
+    """Replace each absolute path `prefix/rest` with `target(rest)`, or leave it as printed when that is None.
+
+    A full stop after a path ends a sentence, not the name, so it is kept out of `rest`.
+    """
+    if f"{prefix}/" not in text:
+        return text
+
+    @functools.cache
+    def mapped(rest: str) -> str | None:
+        return target(rest)
+
+    def rewrite(match: re.Match[str]) -> str:
+        rest = match["rest"].rstrip(".")
+        new = mapped(rest) if rest else None
+        return match[0] if new is None else new + match["rest"][len(rest) :]
+
+    return re.sub(rf"(?<![\w./-]){re.escape(prefix)}/(?P<rest>{_PATH})", rewrite, text)
+
+
+def _strip_workdir(text: str, container_dir: str | None, locate: Callable[[str], str | None]) -> str:
+    """Make absolute paths under the container working directory relative to it, so they can be matched to host files.
+
+    Only paths that are files on the host change, so library paths such as `/usr/local/lib/...` stay as printed.
+    """
+    if not container_dir or container_dir == "/":
+        return text
+    return _rewrite_under(text, container_dir, lambda rest: rest if locate(rest) is not None else None)
+
+
+def _map_mount_root(text: str, mount_root: str, workdir: str, exists: Callable[[str], bool]) -> str:
+    """Point absolute container paths in the mounted tree, outside the working directory, at the host.
+
+    `mount_root` is the container folder that holds the working directory's host folder `workdir`.
+    `/workspace/shared/x.py` becomes `../shared/x.py`, relative to the working directory, but only
+    when that file exists on the host, so other text is left as it was.
+    """
+    up = "../" * (workdir.count("/") + 1)
+    return _rewrite_under(text, mount_root, lambda rest: up + rest if exists(up + rest) else None)
+
+
+def _is_inside(path: Path, root: Path, kind: Callable[[Path], bool]) -> bool:
+    """Whether `path`, after resolving `..` and symlinks, is under `root` and passes `kind` (`Path.is_file`)."""
+    # Python 3.12 and 3.13 raise on over-long names, unreadable directories and symlink loops.
+    try:
+        resolved = path.resolve()
+        return resolved.is_relative_to(root) and kind(resolved)
+    except (OSError, RuntimeError, ValueError):
+        return False
+
+
+def _workdir_confirmed(text: str, workdir: str, locate: Callable[[str], str | None]) -> bool:
+    """Whether a file in the output was found under the guessed `workdir` folder.
+
+    The mount root is only believed then. A folder that merely shares its name with the end of the
+    container working directory says nothing about where the rest of the container's tree sits on the host.
+    """
+    failures = extract.extract_failures(text, lambda path: locate(path) is not None, detail_limit=0)
+    return any(f.location and locate(f.location.partition(":")[0]) == workdir for f in failures)
 
 
 def _exists_in(directory: Path) -> Callable[[str], bool]:
@@ -154,22 +215,35 @@ def _exists_in(directory: Path) -> Callable[[str], bool]:
     root = Path.cwd().resolve()
 
     def exists(path: str) -> bool:
-        if os.path.isabs(path):
-            return False
-        # Python 3.12 and 3.13 raise on over-long names, unreadable directories and symlink loops.
-        try:
-            candidate = (directory / path).resolve()
-            return candidate.is_relative_to(root) and candidate.is_file()
-        except (OSError, RuntimeError, ValueError):
-            return False
+        return not os.path.isabs(path) and _is_inside(directory / path, root, Path.is_file)
 
     return exists
 
 
-def _prefixed(failure: extract.Failure, prefix: str) -> extract.Failure:
-    if not prefix or failure.location is None:
+def _locator(directory: Path, workdir: str) -> Callable[[str], str | None]:
+    """For a reported path, the folder under `directory` it was found in: `workdir`, else `directory` itself ("").
+
+    `workdir` is a guess at where a container command ran, and a folder can match it by chance
+    (a project with an `app/` package, mounted whole at `/app`). So the project folder is tried too.
+    """
+    bases = [workdir, ""] if workdir else [""]
+    lookups = [(base, _exists_in(directory / base)) for base in bases]
+
+    @functools.cache
+    def locate(path: str) -> str | None:
+        return next((base for base, exists in lookups if exists(path)), None)
+
+    return locate
+
+
+def _prefixed(failure: extract.Failure, start: str, locate: Callable[[str], str | None]) -> extract.Failure:
+    """Make the location relative to where hush started: `start` is the `--cwd` folder, or ""."""
+    if failure.location is None:
         return failure
     path, colon, rest = failure.location.partition(":")
+    prefix = posixpath.join(start, locate(path) or "")
+    if not prefix:
+        return failure
     return extract.Failure(posixpath.normpath(f"{prefix}/{path}") + colon + rest, failure.reason)
 
 
@@ -246,16 +320,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.cwd and not args.cwd.is_dir():
         parser.error(f"--cwd {args.cwd}: not a directory")
     child_cwd: Path = args.cwd or Path.cwd()
-    workdir = _host_workdir(tools.exec_workdir(args.command), child_cwd)
-    report_dir = child_cwd / workdir
-    prefix = "/".join(part for part in (args.cwd.as_posix() if args.cwd else "", workdir) if part)
-    prefix = posixpath.normpath(prefix) if prefix else ""
+    container_dir = tools.exec_workdir(args.command)
+    workdir, mount_root = _host_workdir(container_dir, child_cwd)
+    locate = _locator(child_cwd, workdir)
+    start = posixpath.normpath(args.cwd.as_posix()) if args.cwd else ""
 
     inferred_tool, tool_index = tools.find_tool(args.command)
     tool = args.tool or inferred_tool
     command = tools.with_failfast(args.command, inferred_tool, tool_index) if args.failfast else list(args.command)
     label = f"({tool}) {args.name}".rstrip()
-    log_path = Path(args.log_dir) / _log_name(prefix, tool, args.name, _run_id())
+    log_path = Path(args.log_dir) / _log_name(posixpath.join(start, workdir), tool, args.name, _run_id())
     # Values the command passes into a container are secrets the same way environment variables are.
     redactor = sanitize.Redactor(os.environ, tools.exec_env(command))
 
@@ -271,6 +345,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         redactor.redact_multiline(sanitize.normalize(result.output.decode("utf-8", errors="replace"), redactor.redact)),
         child_cwd,
     )
+    text = _strip_workdir(text, container_dir, locate)
+    if result.exit_code != 0 and mount_root and f"{mount_root}/" in text and _workdir_confirmed(text, workdir, locate):
+        text = _map_mount_root(text, mount_root, workdir, _exists_in(child_cwd / workdir))
     log_note = _save_log(
         log_path,
         redactor.redact(
@@ -290,9 +367,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     diagnosis = (
         parsers.Diagnosis(())
         if result.spawn_error
-        else parsers.parse(tool, text, _exists_in(report_dir), args.max_failures)
+        else parsers.parse(tool, text, lambda path: locate(path) is not None, args.max_failures)
     )
-    failures = tuple(_prefixed(_redacted(f, redactor), prefix) for f in diagnosis.failures)
+    failures = tuple(_prefixed(_redacted(f, redactor), start, locate) for f in diagnosis.failures)
     print(
         report.failure_report(
             label,

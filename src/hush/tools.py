@@ -1,3 +1,4 @@
+import posixpath
 import re
 from collections.abc import Callable, Iterator, Sequence
 from pathlib import PurePath
@@ -156,8 +157,9 @@ def _exec_option_values(argv: Sequence[str], long_name: str, letter: str) -> Ite
             option, equals, _ = token.partition("=")
             wanted, attached = option == long_name, (len(option) + 1 if equals else None)
         else:
-            _, found, value = _split_cluster(token)
-            wanted, attached = found == letter, (len(token) - len(value) if value else None)
+            _, found, attached_value = _split_cluster(token)
+            value = attached_value.removeprefix("=")  # Docker also reads `-w=/app`
+            wanted, attached = found == letter, (len(token) - len(value) if attached_value else None)
         if wanted and attached is not None:
             yield index, attached
         elif wanted and index + 1 < limit:
@@ -171,9 +173,12 @@ def _exec_env_args(argv: Sequence[str]) -> Iterator[tuple[int, int]]:
 
 
 def exec_workdir(argv: Sequence[str]) -> str | None:
-    """The directory `docker exec -w` or `--workdir` sets in the container. The last one wins, as in Docker."""
+    """The absolute directory `docker exec -w` or `--workdir` sets in the container, cleaned up.
+
+    The last one wins, as in Docker. None when there is none or it is not absolute.
+    """
     values = [argv[index][offset:] for index, offset in _exec_option_values(argv, "--workdir", "w")]
-    return values[-1] if values else None
+    return posixpath.normpath(values[-1]) if values and posixpath.isabs(values[-1]) else None
 
 
 def exec_env(argv: Sequence[str]) -> dict[str, str]:

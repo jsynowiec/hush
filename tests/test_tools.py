@@ -241,6 +241,12 @@ def _is_secret(name: str) -> bool:
         ),
         (["docker", "run", "-e", "DB_PASSWORD=p", "img"], {}, ["docker", "run", "-e", "DB_PASSWORD=p", "img"]),
         (["pytest", "-e", "DB_PASSWORD=p"], {}, ["pytest", "-e", "DB_PASSWORD=p"]),
+        # Docker also reads `-e=NAME=VALUE`, so the value has to be masked in that spelling too.
+        (
+            ["docker", "exec", "-e=DB_PASSWORD=p", "-ie=API_KEY=k", "web", "pytest"],
+            {"DB_PASSWORD": "p", "API_KEY": "k"},
+            ["docker", "exec", "-e=DB_PASSWORD=[X]", "-ie=API_KEY=[X]", "web", "pytest"],
+        ),
     ],
 )  # fmt: skip
 def test_exec_env_values_are_found_and_masked(argv, expected_env, expected_masked):
@@ -255,9 +261,13 @@ def test_exec_env_values_are_found_and_masked(argv, expected_env, expected_maske
         (["docker", "exec", "-w/app/api", "web", "pytest"], "/app/api"),
         (["docker", "exec", "--workdir", "/app/api", "web", "pytest"], "/app/api"),
         (["docker", "exec", "--workdir=/app/api", "web", "pytest"], "/app/api"),
+        (["docker", "exec", "-w=/app/api", "web", "pytest"], "/app/api"),
+        (["docker", "exec", "-itw=/app/api", "web", "pytest"], "/app/api"),
         (["docker", "exec", "-itw", "/app/api", "web", "pytest"], "/app/api"),
         (["docker", "compose", "-f", "ci.yml", "exec", "-T", "-w", "/app/api", "app", "pytest"], "/app/api"),
         (["docker", "exec", "-w", "/one", "-w", "/two", "web", "pytest"], "/two"),
+        (["docker", "exec", "-w", "/app/api/", "web", "pytest"], "/app/api"),
+        (["docker", "exec", "-w", "app/api", "web", "pytest"], None),
         (["docker", "exec", "web", "pytest"], None),
         # After the name, `-w` belongs to the command. A value of another option is not a workdir.
         (["docker", "exec", "web", "pytest", "-w", "/app/api"], None),
