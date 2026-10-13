@@ -135,8 +135,11 @@ def _container_command(argv: Sequence[str]) -> int | None:
     return None if unfit or command >= len(argv) else command
 
 
-def _exec_env_args(argv: Sequence[str]) -> Iterator[tuple[int, int]]:
-    """Where each `-e` or `--env` value of `docker exec` sits: `argv[index][offset:]` is `NAME=VALUE` or `NAME`."""
+def _exec_option_values(argv: Sequence[str], long_name: str, letter: str) -> Iterator[tuple[int, int]]:
+    """Where each value of a `docker exec` option sits: `argv[index][offset:]` is the value.
+
+    `long_name` is the `--option` form and `letter` the short one, as in `--env` and `e`.
+    """
     layout = _exec_layout(argv)
     if layout is None:
         return
@@ -151,15 +154,26 @@ def _exec_env_args(argv: Sequence[str]) -> Iterator[tuple[int, int]]:
             continue
         if token.startswith("--"):
             option, equals, _ = token.partition("=")
-            is_env, attached = option == "--env", (len(option) + 1 if equals else None)
+            wanted, attached = option == long_name, (len(option) + 1 if equals else None)
         else:
-            _, letter, value = _split_cluster(token)
-            is_env, attached = letter == "e", (len(token) - len(value) if value else None)
-        if is_env and attached is not None:
+            _, found, value = _split_cluster(token)
+            wanted, attached = found == letter, (len(token) - len(value) if value else None)
+        if wanted and attached is not None:
             yield index, attached
-        elif is_env and index + 1 < limit:
+        elif wanted and index + 1 < limit:
             yield index + 1, 0
         index += 2 if _takes_next_word(token) else 1
+
+
+def _exec_env_args(argv: Sequence[str]) -> Iterator[tuple[int, int]]:
+    """Where each `-e` or `--env` value of `docker exec` sits: `argv[index][offset:]` is `NAME=VALUE` or `NAME`."""
+    return _exec_option_values(argv, "--env", "e")
+
+
+def exec_workdir(argv: Sequence[str]) -> str | None:
+    """The directory `docker exec -w` or `--workdir` sets in the container. The last one wins, as in Docker."""
+    values = [argv[index][offset:] for index, offset in _exec_option_values(argv, "--workdir", "w")]
+    return values[-1] if values else None
 
 
 def exec_env(argv: Sequence[str]) -> dict[str, str]:

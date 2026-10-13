@@ -246,3 +246,25 @@ def _is_secret(name: str) -> bool:
 def test_exec_env_values_are_found_and_masked(argv, expected_env, expected_masked):
     assert tools.exec_env(argv) == expected_env
     assert tools.mask_exec_env(argv, _is_secret, MASK) == expected_masked
+
+
+@pytest.mark.parametrize(
+    ("argv", "expected"),
+    [
+        (["docker", "exec", "-w", "/app/api", "web", "pytest"], "/app/api"),
+        (["docker", "exec", "-w/app/api", "web", "pytest"], "/app/api"),
+        (["docker", "exec", "--workdir", "/app/api", "web", "pytest"], "/app/api"),
+        (["docker", "exec", "--workdir=/app/api", "web", "pytest"], "/app/api"),
+        (["docker", "exec", "-itw", "/app/api", "web", "pytest"], "/app/api"),
+        (["docker", "compose", "-f", "ci.yml", "exec", "-T", "-w", "/app/api", "app", "pytest"], "/app/api"),
+        (["docker", "exec", "-w", "/one", "-w", "/two", "web", "pytest"], "/two"),
+        (["docker", "exec", "web", "pytest"], None),
+        # After the name, `-w` belongs to the command. A value of another option is not a workdir.
+        (["docker", "exec", "web", "pytest", "-w", "/app/api"], None),
+        (["docker", "exec", "-u", "-w", "web", "pytest", "/app/api"], None),
+        (["docker", "run", "-w", "/app/api", "img", "pytest"], None),
+        (["pytest", "-w", "/app/api"], None),
+    ],
+)  # fmt: skip
+def test_exec_workdir_is_the_container_directory_the_command_runs_in(argv, expected):
+    assert tools.exec_workdir(argv) == expected

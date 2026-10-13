@@ -119,6 +119,31 @@ def _relativize(text: str, directory: Path) -> str:
     return text
 
 
+def _host_workdir(container_dir: str | None, base: Path) -> str:
+    """The folder under `base` that a container working directory most likely mounts, or "" for none.
+
+    Tools print paths relative to the working directory the command ran in, which for a container
+    command is the directory the command line sets there. The mount is not known, so this takes the
+    longest tail of the container path that is a folder under `base`: `/workspace/backend` gives
+    `workspace/backend` if that exists, else `backend`. It is a guess, but a reported file must
+    still exist there to be named.
+    """
+    if not container_dir or not posixpath.isabs(container_dir):
+        return ""
+    parts = [part for part in posixpath.normpath(container_dir).split("/") if part]
+    root = Path.cwd().resolve()
+    for start in range(len(parts)):
+        tail = "/".join(parts[start:])
+        # Python 3.12 and 3.13 raise on over-long names, unreadable directories and symlink loops.
+        try:
+            candidate = (base / tail).resolve()
+            if candidate.is_relative_to(root) and candidate.is_dir():
+                return tail
+        except (OSError, RuntimeError, ValueError):
+            continue
+    return ""
+
+
 def _exists_in(directory: Path) -> Callable[[str], bool]:
     """Whether a reported path is a file under `directory` and inside where hush started.
 
@@ -221,7 +246,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.cwd and not args.cwd.is_dir():
         parser.error(f"--cwd {args.cwd}: not a directory")
     child_cwd: Path = args.cwd or Path.cwd()
-    prefix = posixpath.normpath(args.cwd.as_posix()) if args.cwd else ""
+    workdir = _host_workdir(tools.exec_workdir(args.command), child_cwd)
+    report_dir = child_cwd / workdir
+    prefix = "/".join(part for part in (args.cwd.as_posix() if args.cwd else "", workdir) if part)
+    prefix = posixpath.normpath(prefix) if prefix else ""
 
     inferred_tool, tool_index = tools.find_tool(args.command)
     tool = args.tool or inferred_tool
@@ -262,7 +290,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     diagnosis = (
         parsers.Diagnosis(())
         if result.spawn_error
-        else parsers.parse(tool, text, _exists_in(child_cwd), args.max_failures)
+        else parsers.parse(tool, text, _exists_in(report_dir), args.max_failures)
     )
     failures = tuple(_prefixed(_redacted(f, redactor), prefix) for f in diagnosis.failures)
     print(

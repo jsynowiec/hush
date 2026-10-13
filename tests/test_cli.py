@@ -327,6 +327,51 @@ def test_docker_exec_env_secrets_are_masked_in_the_log_and_the_output(run: Run):
     assert "connecting with [REDACTED] and short7" in log
 
 
+def _failing_docker(run: Run) -> str:
+    """A stand-in `docker` that fails with a path relative to the container's working directory."""
+    docker = run.tmp_path / "docker"
+    docker.write_text("#!/bin/sh\necho 'tests/test_a.py:3: AssertionError: the total is wrong'\nexit 1\n")
+    docker.chmod(0o755)
+    return str(docker)
+
+
+@pytest.mark.parametrize(
+    ("hush_options", "host_files", "workdir", "expected"),
+    [
+        # The container folder is a subfolder of the project, so the location gets that folder in front.
+        ([], ["backend/tests/test_a.py"], "/workspace/backend", "backend/tests/test_a.py:3"),
+        # The longest matching tail wins, even when a shorter one is also a folder.
+        (
+            [],
+            ["workspace/backend/tests/test_a.py", "backend/other.py"],
+            "/workspace/backend",
+            "workspace/backend/tests/test_a.py:3",
+        ),
+        # Combined with `--cwd`, the folder is looked for under it and shown after it.
+        (["--cwd", "proj"], ["proj/backend/tests/test_a.py"], "/w/backend", "proj/backend/tests/test_a.py:3"),
+        # No folder of that name on the host: nothing to map, the path is looked up as before.
+        ([], ["tests/test_a.py"], "/workspace/backend", "tests/test_a.py:3"),
+    ],
+)
+def test_docker_exec_workdir_is_mapped_to_a_host_folder(
+    hush_options: list[str], host_files: list[str], workdir: str, expected: str, run: Run
+):
+    for name in host_files:
+        (run.tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (run.tmp_path / name).write_text("")
+    _, out = run("--name", "Smoke", *hush_options, child=[_failing_docker(run), "exec", "-w", workdir, "web", "pytest"])
+    assert f"\n    {expected}\n    Reason:\n" in out
+
+
+@pytest.mark.parametrize("docker_args", [["exec", "-w", "/workspace/frontend"], ["exec"]])
+def test_docker_exec_reports_no_location_when_no_host_folder_fits(docker_args: list[str], run: Run):
+    # The file exists only under `backend`, which nothing in the command points to.
+    (run.tmp_path / "backend/tests").mkdir(parents=True)
+    (run.tmp_path / "backend/tests/test_a.py").write_text("")
+    _, out = run("--name", "Smoke", child=[_failing_docker(run), *docker_args, "web", "pytest"])
+    assert "\n    Reason:\n      tests/test_a.py:3: AssertionError: the total is wrong\n" in out
+
+
 def test_cwd_runs_the_command_there_and_reports_paths_from_the_caller(run: Run):
     module = run.tmp_path / "module-a"
     module.mkdir()
