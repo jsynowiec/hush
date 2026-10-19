@@ -3,9 +3,9 @@ import re
 from collections.abc import Callable, Iterator, Sequence
 from pathlib import PurePath
 
-# Tools hush has a parser for. Keep in step with `parsers.PARSERS` (a test checks this).
+# Tools with parsers. Keep this set consistent with `parsers.PARSERS`.
 INNER_TOOLS = frozenset({"pytest", "ruff", "mypy", "ty", "biome", "vitest", "vite", "tsc", "eslint", "prettier"})
-# Programs that start another program, e.g. `uv run pytest`, `pnpm exec vitest`, `python -m pytest`.
+# Launchers such as `uv run pytest`, `pnpm exec vitest`, and `python -m pytest`.
 _LAUNCHERS = frozenset({"uv", "uvx", "pnpm", "npx", "bunx", "bun", "node"})
 _PYTHON = re.compile(r"^python(?:\d+(?:\.\d+)*)?$")
 # Words a launcher accepts before the tool name. Anything else (`install`, `add`) ends the search.
@@ -188,7 +188,7 @@ def exec_env(argv: Sequence[str]) -> dict[str, str]:
 
 
 def mask_exec_env(argv: Sequence[str], is_secret: Callable[[str], bool], placeholder: str) -> list[str]:
-    """A copy of argv with the value of each `-e NAME=VALUE` replaced when `is_secret(NAME)`, spelling kept."""
+    """Copy argv and mask secret `-e NAME=VALUE` values, preserving option spelling."""
     masked = list(argv)
     for index, offset in _exec_env_args(argv):
         name, equals, _ = argv[index][offset:].partition("=")

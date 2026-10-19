@@ -13,9 +13,9 @@ _CONTROL = re.compile(
 
 MAX_LINE_CHARS = 4000
 
-# Only PEM characters count as key body, so an unterminated header cannot swallow the output
-# after it. In the multi-line form a body line must be entirely PEM characters, so a line such as
-# `app.py:1` is left whole. The second form is a block printed on one line with backslash-n escapes.
+# Restrict key bodies to PEM characters so that an unterminated header does not hide
+# unrelated output. Multiline bodies require full PEM lines, preserving lines like `app.py:1`.
+# The other form handles a block printed on one line with escaped newlines.
 _PRIVATE_KEY = re.compile(
     r"-----BEGIN [A-Z ]*PRIVATE KEY-----"
     r"(?:[A-Za-z0-9+/=:,\\ \t-]*?-----END [A-Z ]*PRIVATE KEY-----"
@@ -66,17 +66,16 @@ def _clean_line(line: str, redact: Callable[[str], str] | None) -> str:
 
 
 def normalize(text: str, redact: Callable[[str], str] | None = None) -> str:
-    """Make output safe to show: no terminal control, no invisible characters, bounded lines.
+    """Remove terminal controls and invisible characters, then clip long lines.
 
-    Works line by line, so only one extra copy of the text is alive at a time. `redact` is applied
-    only to lines that are about to be clipped. Other lines are left for the caller to redact
-    after parsing, so that file names survive.
+    Apply `redact` only to lines that exceed the line limit. The caller redacts the remaining
+    lines after parsing so that file names remain available for lookups.
     """
     return "\n".join(_clean_line(line, redact) for line in text.split("\n"))
 
 
 class Redactor:
-    """Masks well-known token shapes and the values of secret-looking environment variables."""
+    """Mask recognised token formats and values from secret environment variables."""
 
     def __init__(self, *environs: Mapping[str, str]) -> None:
         """`environs` are separate mappings, so a name in two of them has both of its values masked."""

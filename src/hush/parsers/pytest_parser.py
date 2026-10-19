@@ -48,10 +48,10 @@ def _failure_sections(lines: list[str]) -> list[tuple[str, list[str]]]:
 
 
 def _nodeids_by_title_and_file(lines: list[str]) -> dict[tuple[str, str], str]:
-    """Test ids from the short summary, keyed by how a failure section titles them and by file.
+    """Index summary test IDs by section title and file.
 
-    Sections and summary lines come in different orders, and two files can hold a test with the
-    same name, so a section is matched by its title together with the file its own frames name.
+    Sections and summary lines can have different orders. Two files can also contain tests
+    with the same name, so matching requires both the title and a file from the section's frames.
     """
     by_title_and_file: dict[tuple[str, str], str] = {}
     in_summary = False
@@ -83,9 +83,9 @@ def _failure(section: list[str], key: str, nodeids: dict[tuple[str, str], str]) 
 
 
 def _matching_nodeid(nodeids: dict[tuple[str, str], str], key: str, frames: list[tuple[str, str]]) -> str | None:
-    """The id only when exactly one file in the section's frames has a summary line with this title.
+    """Return a test ID when exactly one frame file matches the title in the summary.
 
-    With none or several the section keeps its own frame location, not a guessed id.
+    No match or multiple matches leave the caller to use the section's frame location.
     """
     candidates = {nodeids[k] for path, _ in frames if (k := (key, path)) in nodeids}
     return next(iter(candidates)) if len(candidates) == 1 else None

@@ -19,7 +19,7 @@ DEFAULT_KEEP_LOGS = 40
 DEFAULT_MAX_CAPTURE_MB = 10
 DEFAULT_MAX_FAILURES = 10
 MAX_LOG_NAME_CHARS = 100
-# `<slug>-<YYYYMMDD>T<HHMMSS>-<4 hex>.log`. Pruning only ever touches names that match.
+# Pruning deletes only names that match `<slug>-<YYYYMMDD>T<HHMMSS>-<4 hex>.log`.
 LOG_NAME = re.compile(r"[a-z0-9-]+-\d{8}T\d{6}-[0-9a-f]{4}\.log")
 
 
@@ -41,14 +41,14 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="hush",
         usage="hush [options] -- COMMAND [ARGS...]",
-        description="Run a command. Print one line if it passes, file:line details if it fails.",
+        description="Run a command with one line on success and a short report on failure.",
     )
-    parser.add_argument("--name", default="", help='what is being run, e.g. "Lint check"')
-    parser.add_argument("--tool", help="tool name for the label and output parser when it cannot be inferred")
+    parser.add_argument("--name", default="", help='step name for the report and log, for example "Lint check"')
+    parser.add_argument("--tool", help="override the tool name used for the report label and output parser")
     parser.add_argument(
         "--cwd",
         type=Path,
-        help="run COMMAND in this directory and report its paths from here",
+        help="run COMMAND in this directory, with reported paths relative to where hush started",
     )
     parser.add_argument(
         "--failfast",
@@ -59,9 +59,11 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--timeout",
         type=_positive_float,
-        help="stop the command and its child processes after this many seconds",
+        help="stop the local process group after this many seconds (container processes can continue)",
     )
-    parser.add_argument("--log-dir", default=DEFAULT_LOG_DIR, help="where full logs are written")
+    parser.add_argument(
+        "--log-dir", default=DEFAULT_LOG_DIR, help="directory for cleaned, redacted logs, subject to capture limits"
+    )
     parser.add_argument(
         "--keep-logs",
         type=_positive_int,
@@ -76,11 +78,13 @@ def _build_parser() -> argparse.ArgumentParser:
         default="auto",
         help="colour the pass and fail marks (auto: only on a terminal, never with NO_COLOR set)",
     )
-    parser.add_argument("--verbose", action="store_true", help="also print the cleaned output to stderr afterwards")
+    parser.add_argument(
+        "--verbose", action="store_true", help="print cleaned, redacted output to stderr after the command exits"
+    )
     parser.add_argument(
         "--classify",
         action="store_true",
-        help="do not run COMMAND; print the tool hush recognises in it and exit 0, or print nothing and exit 1",
+        help="classify COMMAND without running it: print a recognised tool and exit 0, otherwise exit 1",
     )
     parser.add_argument("command", nargs="+", help="command to run (put it after `--`)")
     return parser
@@ -91,7 +95,7 @@ def _slug(text: str) -> str:
 
 
 def _run_id() -> str:
-    """UTC time to the second plus 4 random hex digits, so concurrent runs of one step do not share a log."""
+    """Return the UTC time and four random hex digits to reduce log-name collisions."""
     return f"{datetime.now(UTC):%Y%m%dT%H%M%S}-{secrets.token_hex(2)}"
 
 
@@ -104,12 +108,12 @@ def _log_name(prefix: str, tool: str, name: str, run_id: str) -> str:
 
 
 def _child_env(environ: Mapping[str, str]) -> dict[str, str]:
-    """Inherit the environment, but make tools colourless."""
+    """Inherit the environment and disable tool colour output."""
     return {**environ, "NO_COLOR": "1", "FORCE_COLOR": "0"}
 
 
 def _relativize(text: str, directory: Path) -> str:
-    """Drop the working directory from absolute paths, to save tokens.
+    """Remove the working-directory prefix from absolute paths.
 
     Only whole absolute prefixes are removed, so a directory name that happens to appear
     elsewhere in a path is left alone.
@@ -121,14 +125,12 @@ def _relativize(text: str, directory: Path) -> str:
 
 
 def _host_workdir(container_dir: str | None, base: Path) -> tuple[str, str]:
-    """The folder under `base` that a container working directory most likely mounts, and the container
-    folder above it where the host tree is mounted. Both are "" when there is no match.
+    """Return a guessed host directory under `base` and its container mount root.
 
-    Tools print paths relative to the working directory the command ran in, which for a container
-    command is the directory the command line sets there. The mount is not known, so this takes the
-    longest tail of the container path that is a folder under `base`: `/workspace/backend` gives
-    `workspace/backend` if that exists, else `backend` (mounted at `/workspace`). It is a guess, but a
-    reported file must still exist there to be named.
+    Choose the longest suffix of the container working directory that exists under `base`.
+    For `/workspace/backend`, try `workspace/backend`, then `backend`. Matching `backend`
+    gives the guessed mount root `/workspace`. Both results are empty when no directory matches.
+    Reported files must exist on the host even when a directory matches.
     """
     if not container_dir:
         return "", ""
@@ -147,7 +149,7 @@ _PATH = r"[\w@+.-]+(?:/[\w@+.-]+)*"
 def _rewrite_under(text: str, prefix: str, target: Callable[[str], str | None]) -> str:
     """Replace each absolute path `prefix/rest` with `target(rest)`, or leave it as printed when that is None.
 
-    A full stop after a path ends a sentence, not the name, so it is kept out of `rest`.
+    A trailing full stop remains outside `rest` so that the path lookup excludes sentence punctuation.
     """
     if f"{prefix}/" not in text:
         return text
@@ -198,8 +200,8 @@ def _is_inside(path: Path, root: Path, kind: Callable[[Path], bool]) -> bool:
 def _workdir_confirmed(text: str, workdir: str, locate: Callable[[str], str | None]) -> bool:
     """Whether a file in the output was found under the guessed `workdir` folder.
 
-    The mount root is only believed then. A folder that merely shares its name with the end of the
-    container working directory says nothing about where the rest of the container's tree sits on the host.
+    A matching file permits use of the guessed mount root. A directory-name match alone does not
+    confirm where the rest of the container tree maps on the host.
     """
     failures = extract.extract_failures(text, lambda path: locate(path) is not None, detail_limit=0)
     return any(f.location and locate(f.location.partition(":")[0]) == workdir for f in failures)
@@ -221,10 +223,10 @@ def _exists_in(directory: Path) -> Callable[[str], bool]:
 
 
 def _locator(directory: Path, workdir: str) -> Callable[[str], str | None]:
-    """For a reported path, the folder under `directory` it was found in: `workdir`, else `directory` itself ("").
+    """Return the matching base for a reported path: `workdir`, an empty string, or None.
 
-    `workdir` is a guess at where a container command ran, and a folder can match it by chance
-    (a project with an `app/` package, mounted whole at `/app`). So the project folder is tried too.
+    Try the guessed container directory first, then `directory` itself. A directory can match
+    `workdir` by chance, as when a project with an `app/` package mounts the whole project at `/app`.
     """
     bases = [workdir, ""] if workdir else [""]
     lookups = [(base, _exists_in(directory / base)) for base in bases]
@@ -291,7 +293,7 @@ def _prune_logs(current: Path, keep: int) -> None:
                         logs.append((entry.name == current.name, mtime, entry.name))
                 except OSError:
                     continue
-        # The run's own log sorts first whatever its timestamp, so equal timestamps cannot get it deleted.
+        # Sort the current log first so that pruning keeps it even when timestamps are equal.
         logs.sort(reverse=True)
         for _, _, name in logs[keep:]:
             with contextlib.suppress(OSError):
@@ -311,7 +313,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
     if args.classify:
-        # Answers from the command alone, so `--tool` and `--cwd` play no part.
+        # Classification uses only the command. It ignores `--tool` and `--cwd`.
         name, index = tools.find_tool(args.command)
         if index is None:
             return 1
@@ -330,7 +332,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     command = tools.with_failfast(args.command, inferred_tool, tool_index) if args.failfast else list(args.command)
     label = f"({tool}) {args.name}".rstrip()
     log_path = Path(args.log_dir) / _log_name(posixpath.join(start, workdir), tool, args.name, _run_id())
-    # Values the command passes into a container are secrets the same way environment variables are.
+    # Apply environment-secret rules to values passed into the container.
     redactor = sanitize.Redactor(os.environ, tools.exec_env(command))
 
     result = runner.run_command(
@@ -340,7 +342,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         timeout=args.timeout,
         max_capture_bytes=args.max_capture_mb * 1024 * 1024,
     )
-    # Secrets that span lines have to go before parsing, which looks at one line at a time.
+    # Redact multiline secrets before parsers split the output into lines.
     text = _relativize(
         redactor.redact_multiline(sanitize.normalize(result.output.decode("utf-8", errors="replace"), redactor.redact)),
         child_cwd,
@@ -385,7 +387,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def _save_log(path: Path, content: str) -> str | None:
-    """Write the log. Returns a note for the report when that was not possible."""
+    """Write the log and return an error note if the write fails."""
     try:
         _write_log(path, content)
     except OSError as error:

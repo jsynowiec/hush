@@ -12,8 +12,7 @@ from pathlib import Path
 
 CHUNK_BYTES = 64 * 1024
 POLL_SECONDS = 0.1
-# How long to keep reading after the command has exited. Covers output still in the pipe, and
-# gives up on background processes that inherited the pipe and never close it.
+# Limit output reads after the command exits. A background process can keep the pipe open.
 DRAIN_GRACE_SECONDS = 1.0
 # How long a command gets to stop after SIGTERM before the whole process group is killed.
 TERM_GRACE_SECONDS = 2.0
@@ -47,9 +46,9 @@ class _Signals:
 
 
 class _Capture:
-    """Keeps the first and last halves of the output, so memory is bounded by `max_bytes`.
+    """Keep the first and last output bytes, with a capture limit of `max_bytes`.
 
-    The end matters most: test runners print their failure summary last.
+    The tail preserves test runners' final failure summaries. Other processing uses more memory.
     """
 
     def __init__(self, max_bytes: int) -> None:
@@ -95,15 +94,14 @@ def run_command(
     timeout: float | None,
     max_capture_bytes: int,
 ) -> RunResult:
-    """Run argv with stdin closed and stdout and stderr merged, and return what it printed.
+    """Run argv with stdin closed and stdout and stderr merged, then return the result.
 
-    The command gets its own process group. On timeout, or when hush is interrupted
-    (SIGINT, SIGTERM, SIGHUP), the whole group is stopped, so no test process is left behind.
-    A process started through another program, such as a container client, is not in the group and
-    keeps running.
-    A further signal while the group is stopping kills it at once.
-    The run ends when the command exits. A background process that keeps the output pipe open
-    cannot hold hush up.
+    A timeout, SIGINT, SIGTERM, or SIGHUP stops the command's process group. Processes outside
+    that group, such as container processes, can continue. Another signal during shutdown
+    kills the group at once.
+
+    A normal run ends when the command exits. Output reads have a separate grace period so
+    that a background process cannot keep hush waiting by holding the pipe open.
     """
     with _default_sigchld():
         return _run(argv, cwd=cwd, env=env, timeout=timeout, max_capture_bytes=max_capture_bytes)
@@ -190,7 +188,7 @@ def _pump(fd: int, capture: _Capture, stop: threading.Event) -> None:
 
 @contextlib.contextmanager
 def _default_sigchld() -> Generator[None]:
-    """Undo an inherited SIGCHLD of SIG_IGN for the run.
+    """Reset an inherited SIG_IGN handler for SIGCHLD during the run.
 
     With SIGCHLD ignored, Linux reaps children by itself and `waitpid` fails, which `Popen`
     reports as exit status 0. A failing command would then pass.
@@ -235,7 +233,7 @@ def _interruptible(proc: subprocess.Popen[bytes]) -> Generator[_Signals]:
 
 
 def _stop_group(proc: subprocess.Popen[bytes]) -> None:
-    """Ask the process group to stop, then kill whatever is left."""
+    """Send SIGTERM to the process group, then SIGKILL after exit or the grace period."""
     _signal_group(proc, signal.SIGTERM)
     with contextlib.suppress(subprocess.TimeoutExpired):
         proc.wait(TERM_GRACE_SECONDS)

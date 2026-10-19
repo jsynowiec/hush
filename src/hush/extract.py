@@ -1,11 +1,7 @@
-"""Tool-agnostic failure extraction.
+"""Extract failure locations and nearby text without a tool-specific parser.
 
-Nothing here knows about a specific tool. It relies on conventions that survive tool
-releases: editors need `path:line` references, so tools keep printing them; related lines
-sit together in blank-line separated paragraphs; and sections are divided by runs of one
-repeated symbol. Which symbol, colour or wording is used does not matter.
-
-Every step is linear in the size of the output, and long lines are clipped before they get here.
+Recognise file references, paragraphs separated by blank lines, and section separators
+that repeat one symbol. The caller clips long lines before extraction.
 """
 
 import bisect
@@ -111,7 +107,7 @@ def _is_separator(line: str) -> bool:
 
 
 def _is_content(line: str) -> bool:
-    """A line that says something: not blank, a separator, a source gutter or pure decoration."""
+    """Return whether a line has alphanumeric text outside separators and source gutters."""
     return any(c.isalnum() for c in line) and not _is_separator(line) and not _GUTTER.match(line)
 
 
@@ -153,16 +149,15 @@ def _find_refs(lines: list[str], path_exists: PathExists) -> list[_Ref]:
 
 
 def _remainder(ref: _Ref, lines: list[str]) -> str:
-    """What the line says apart from the reference itself."""
+    """Return the line text with the file reference and surrounding punctuation removed."""
     line = lines[ref.index]
     return _says_something(_tidy(f"{line[: ref.start]} {line[ref.end :]}"))
 
 
 class _Layout:
-    """Paragraph bounds and next-non-blank positions, computed once so lookups are O(1).
+    """Precompute paragraph bounds and next nonblank positions for O(1) lookups.
 
-    Kept in `array`s because a list costs about 36 bytes per line and number, and the output
-    can have millions of lines.
+    Arrays use less memory than lists of Python integers for output with many lines.
     """
 
     def __init__(self, lines: list[str]) -> None:

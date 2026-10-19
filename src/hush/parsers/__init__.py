@@ -1,9 +1,8 @@
-"""Tool-specific parsers with a safety net.
+"""Parse failures with tool-specific parsers and generic extraction.
 
-A tool parser gives the best explanation. A tool can change its wording at any release, so a
-parser's answer is only trusted when the files it names exist. When it finds nothing valid, the
-other tool parsers are tried (this also handles `pnpm run <script>` and `make`), then the
-tool-agnostic extractor, then the tail of the output.
+Keep only parser failures that name existing files. If none remain, try the other parsers.
+If no parser finds an existing file, use the generic extractor, which falls back to the output tail.
+The extra parser attempts also handle commands such as `pnpm run <script>` and `make`.
 """
 
 import re
