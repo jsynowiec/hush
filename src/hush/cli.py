@@ -238,6 +238,14 @@ def _locator(directory: Path, workdir: str) -> Callable[[str], str | None]:
     return locate
 
 
+def _start_relative(cwd: Path) -> str:
+    """The `--cwd` folder relative to where hush started. Both are resolved, so a symlinked start adds no `../..`."""
+    if not cwd.is_absolute():
+        return posixpath.normpath(cwd.as_posix())
+    relative = Path(os.path.relpath(cwd.resolve(), Path.cwd().resolve())).as_posix()
+    return "" if relative == "." else relative
+
+
 def _prefixed(failure: extract.Failure, start: str, locate: Callable[[str], str | None]) -> extract.Failure:
     """Make the location relative to where hush started: `start` is the `--cwd` folder, or ""."""
     if failure.location is None:
@@ -325,7 +333,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     container_dir = tools.exec_workdir(args.command)
     workdir, mount_root = _host_workdir(container_dir, child_cwd)
     locate = _locator(child_cwd, workdir)
-    start = posixpath.normpath(args.cwd.as_posix()) if args.cwd else ""
+    start = _start_relative(args.cwd) if args.cwd else ""
 
     inferred_tool, tool_index = tools.find_tool(args.command)
     tool = args.tool or inferred_tool

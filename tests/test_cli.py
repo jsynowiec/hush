@@ -565,6 +565,26 @@ def test_cwd_runs_the_command_there_and_reports_paths_from_the_caller(run: Run):
     assert (run.tmp_path / details.group(1)).is_file()
 
 
+def test_absolute_cwd_is_reported_relative_to_where_hush_started(run: Run):
+    module = run.tmp_path / "backend"
+    module.mkdir()
+    (module / "app.py").write_text("")
+    child = "import sys; print('app.py:1: broke'); sys.exit(1)"
+    _, out = run("--name", "Smoke", "--cwd", str(module), child=child)
+    assert "\n    backend/app.py:1\n" in out
+    assert str(run.tmp_path) not in out
+    details = re.search(rf"Details: (logs/backend-demo-smoke-{RUN_ID}\.log)\n", out)
+    assert details
+    assert (run.tmp_path / details.group(1)).is_file()
+
+
+def test_absolute_cwd_equal_to_the_start_directory_adds_no_prefix(run: Run):
+    (run.tmp_path / "app.py").write_text("")
+    child = "import sys; print('app.py:1: broke'); sys.exit(1)"
+    _, out = run("--name", "Smoke", "--cwd", str(run.tmp_path), child=child)
+    assert "\n    app.py:1\n" in out
+
+
 def test_cwd_must_be_a_directory(run: Run):
     with pytest.raises(SystemExit) as exit_info:
         run("--cwd", "missing-dir", child="pass")
