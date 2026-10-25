@@ -5,7 +5,7 @@ from pathlib import PurePath
 
 # Tools with parsers. Keep this set consistent with `parsers.PARSERS`.
 INNER_TOOLS = frozenset(
-    {"pytest", "ruff", "mypy", "ty", "biome", "vitest", "vite", "tsc", "eslint", "prettier", "oxlint"}
+    {"pytest", "ruff", "mypy", "ty", "biome", "vitest", "vite", "tsc", "eslint", "prettier", "oxlint", "oxfmt"}
 )
 # Launchers such as `uv run pytest`, `pnpm exec vitest`, and `python -m pytest`.
 _LAUNCHERS = frozenset({"uv", "uvx", "pnpm", "npx", "bunx", "bun", "node"})

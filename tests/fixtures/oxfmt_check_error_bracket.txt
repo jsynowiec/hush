@@ -1,0 +1,9 @@
+Checking formatting...
+
+
+  x Unexpected token
+   ,-[src/[id]/page.js:1:11]
+ 1 | const q = ;
+   :           ^
+   `----
+Error occurred when checking code style in the above files.

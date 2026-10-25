@@ -154,7 +154,7 @@ Agents forget. For Claude Code, `examples/claude-code/` has a hook that rejects 
 
 ## How it finds what failed
 
-Each supported tool has a small parser (`src/hush/parsers/`) that knows its output. It gives the best explanation: test names, Expected and Received, error codes. Supported: pytest, vitest, ruff, ty, mypy, tsc, biome, vite, eslint, prettier and oxlint. `pnpm`, `uv`, `npx`, `bunx` and `python -m` are looked through to find the tool behind them.
+Each supported tool has a small parser (`src/hush/parsers/`) that knows its output. It gives the best explanation: test names, Expected and Received, error codes. Supported: pytest, vitest, ruff, ty, mypy, tsc, biome, vite, eslint, prettier, oxlint and oxfmt. `pnpm`, `uv`, `npx`, `bunx` and `python -m` are looked through to find the tool behind them.
 
 Tools change their output between releases, so a parser is never trusted blindly:
 
@@ -172,7 +172,7 @@ Colors and terminal control codes are stripped before any of this runs.
 Known limits:
 
 - The generic explanation is a best guess from nearby lines. It can include a few lines of source code or miss a detail. The full log is always saved.
-- Prettier and biome format failures name the file only. They have no line number.
+- Prettier, biome and oxfmt format failures name the file only. They have no line number.
 - A tool parser's failure whose file cannot be found is not shown. The report counts them ("and N more not matched to a file") and the log has the details.
 - A parser can still be wrong in a way the file check cannot catch, for example by naming a real file with the wrong line. The tests use real captured output to guard against this, but a new tool version can break a parser until its fixture is refreshed.
 - Paths are only recognised if they are relative to the directory the command ran in. A path that leads outside the directory where you started `hush` (through `..` or a symlink) is never reported as a location, even if the file exists.

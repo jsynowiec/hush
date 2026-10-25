@@ -1,0 +1,7 @@
+
+  x Unexpected token
+   ,-[src/broken.js:1:11]
+ 1 | const x = ;
+   :           ^
+   `----
+Error occurred when checking code style in the above files.

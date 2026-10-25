@@ -184,6 +184,39 @@ def test_oxlint_output_with_only_warnings_still_gets_locations_from_the_generic_
     ]
 
 
+def test_oxfmt_check_names_the_files_that_need_formatting():
+    outcome = parse("oxfmt", "oxfmt_check_fail", "src/a.js", "src/b.ts", "src/good.js")
+    assert locations(outcome) == ["src/a.js", "src/b.ts"]
+    assert all(f.reason == ("File is not formatted",) for f in outcome.failures)
+
+
+def test_oxfmt_check_reports_a_parse_error_at_its_line():
+    outcome = parse("oxfmt", "oxfmt_check_error", "src/broken.js", "src/good.js")
+    assert [(f.location, f.reason) for f in outcome.failures] == [("src/broken.js:1", ("Unexpected token",))]
+
+
+def test_oxfmt_write_mode_reports_the_parse_error_the_same_way():
+    outcome = parse("oxfmt", "oxfmt_write_error", "src/broken.js", "src/a.js")
+    assert [(f.location, f.reason) for f in outcome.failures] == [("src/broken.js:1", ("Unexpected token",))]
+
+
+def test_oxfmt_reports_a_parse_error_in_a_file_whose_name_has_brackets():
+    outcome = parse("oxfmt", "oxfmt_check_error_bracket", "src/[id]/page.js")
+    assert [(f.location, f.reason) for f in outcome.failures] == [("src/[id]/page.js:1", ("Unexpected token",))]
+
+
+def test_oxfmt_lists_unformatted_files_alongside_the_parse_error():
+    outcome = parse("oxfmt", "oxfmt_check_mixed", "src/a.js", "src/b.js", "src/broken.js")
+    assert locations(outcome) == ["src/a.js", "src/b.js", "src/broken.js:1"]
+    assert outcome.failures[-1].reason == ("Unexpected token",)
+
+
+def test_oxfmt_check_output_with_a_new_wording_still_gets_locations_from_the_generic_extractor():
+    reworded = load("oxfmt_check_fail").replace(" (0ms)", "")
+    outcome = parse("oxfmt", "", "src/a.js", "src/b.ts", "src/good.js", text=reworded)
+    assert locations(outcome) == ["src/a.js", "src/b.ts"]
+
+
 def test_prettier_names_unformatted_files_and_syntax_errors():
     unformatted = parse("prettier", "prettier_fail", "src/math.test.ts")
     syntax = parse("prettier", "prettier_syntax", "lint/broken.ts")

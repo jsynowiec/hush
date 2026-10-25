@@ -138,6 +138,12 @@
           },
           {
             "type": "command",
+            "if": "Bash(oxfmt *)",
+            "command": "python3 ~/.claude/hooks/hush_nudge.py || true",
+            "timeout": 5
+          },
+          {
+            "type": "command",
             "if": "Bash(prettier *)",
             "command": "python3 ~/.claude/hooks/hush_nudge.py || true",
             "timeout": 5
@@ -199,6 +205,12 @@
           {
             "type": "command",
             "if": "Bash(*/oxlint *)",
+            "command": "python3 ~/.claude/hooks/hush_nudge.py || true",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "if": "Bash(*/oxfmt *)",
             "command": "python3 ~/.claude/hooks/hush_nudge.py || true",
             "timeout": 5
           },
@@ -271,6 +283,12 @@
           {
             "type": "command",
             "if": "Bash(*/oxlint)",
+            "command": "python3 ~/.claude/hooks/hush_nudge.py || true",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "if": "Bash(*/oxfmt)",
             "command": "python3 ~/.claude/hooks/hush_nudge.py || true",
             "timeout": 5
           },
