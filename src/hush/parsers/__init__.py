@@ -16,6 +16,7 @@ from hush.parsers import (
     diagnostics_parser,
     eslint_parser,
     mypy_parser,
+    oxlint_parser,
     prettier_parser,
     pytest_parser,
     tsc_parser,
@@ -34,6 +35,7 @@ PARSERS: Mapping[str, Parser] = {
     "biome": biome_parser.parse,
     "vite": vite_parser.parse,
     "eslint": eslint_parser.parse,
+    "oxlint": oxlint_parser.parse,
     "prettier": prettier_parser.parse,
 }
 

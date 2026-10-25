@@ -155,6 +155,35 @@ def test_eslint_reports_every_error_with_its_rule():
     assert outcome.failures[0].reason == ("no-unused-vars: 'unused' is assigned a value but never used",)
 
 
+def test_oxlint_reports_each_error_with_its_rule_and_ignores_warnings():
+    outcome = parse("oxlint", "oxlint_fail", "src/bad.js", "src/eval.js", "src/escape.js", "src/proto.js")
+    assert [(f.location, f.reason[0]) for f in outcome.failures] == [
+        ("src/escape.js:1", "eslint(no-useless-escape): Unnecessary escape character 'd'"),
+        ("src/eval.js:2", "eslint(no-eval): eval can be harmful."),
+        ("src/bad.js:2", "eslint(no-unused-vars): Identifier 'unused' is imported but never used."),
+        ("src/bad.js:5", "eslint(no-debugger): `debugger` statement is not allowed"),
+        ("src/bad.js:6", "eslint(no-constant-condition): Unexpected constant condition"),
+    ]
+
+
+def test_oxlint_fix_reports_only_the_problems_it_could_not_fix():
+    outcome = parse("oxlint", "oxlint_fix", "src/bad.js", "src/eval.js", "src/proto.js")
+    assert locations(outcome) == ["src/eval.js:2", "src/bad.js:2", "src/bad.js:5", "src/bad.js:6"]
+
+
+def test_oxlint_output_with_only_warnings_still_gets_locations_from_the_generic_extractor():
+    warnings_only = load("oxlint_fail").replace(": error ", ": warning ")
+    outcome = parse("oxlint", "", "src/bad.js", "src/eval.js", "src/escape.js", "src/proto.js", text=warnings_only)
+    assert locations(outcome) == [
+        "src/escape.js:1",
+        "src/eval.js:2",
+        "src/bad.js:2",
+        "src/bad.js:5",
+        "src/bad.js:6",
+        "src/proto.js:2",
+    ]
+
+
 def test_prettier_names_unformatted_files_and_syntax_errors():
     unformatted = parse("prettier", "prettier_fail", "src/math.test.ts")
     syntax = parse("prettier", "prettier_syntax", "lint/broken.ts")

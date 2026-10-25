@@ -154,7 +154,7 @@ Agents forget. For Claude Code, `examples/claude-code/` has a hook that rejects 
 
 ## How it finds what failed
 
-Each supported tool has a small parser (`src/hush/parsers/`) that knows its output. It gives the best explanation: test names, Expected and Received, error codes. Supported: pytest, vitest, ruff, ty, mypy, tsc, biome, vite, eslint and prettier. `pnpm`, `uv`, `npx`, `bunx` and `python -m` are looked through to find the tool behind them.
+Each supported tool has a small parser (`src/hush/parsers/`) that knows its output. It gives the best explanation: test names, Expected and Received, error codes. Supported: pytest, vitest, ruff, ty, mypy, tsc, biome, vite, eslint, prettier and oxlint. `pnpm`, `uv`, `npx`, `bunx` and `python -m` are looked through to find the tool behind them.
 
 Tools change their output between releases, so a parser is never trusted blindly:
 
@@ -164,6 +164,8 @@ Tools change their output between releases, so a parser is never trusted blindly
 4. If that finds no existing file either, the last 20 lines of output are shown. If the command printed nothing at all, the report says so.
 
 So a tool release that rewords its output degrades the explanation, from precise to approximate to the raw tail. It does not turn into a wrong answer or a silent pass. A tool with no parser at all (a custom script, `make`) gets steps 3 and 4.
+
+Oxlint switches itself to the one-line format the oxlint parser reads when it runs under a coding agent (it detects variables such as `CLAUDECODE`, [oxc-project/oxc#20514](https://github.com/oxc-project/oxc/issues/20514)), so `oxlint` needs no flag there, and a block-format run (CI, a plain shell) falls back to steps 3 and 4.
 
 Colors and terminal control codes are stripped before any of this runs.
 

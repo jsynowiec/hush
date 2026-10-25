@@ -1,0 +1,5 @@
+src/eval.js:2:10: error eslint(no-eval): eval can be harmful. help: Avoid eval(). For JSON parsing use JSON.parse(); for dynamic property access use bracket notation (obj[key]); for other cases refactor to avoid evaluating strings as code.
+src/bad.js:2:10: error eslint(no-unused-vars): Identifier 'unused' is imported but never used. help: Consider removing this import.
+src/bad.js:5:3: error eslint(no-debugger): `debugger` statement is not allowed help: Remove the debugger statement
+src/bad.js:6:7: error eslint(no-constant-condition): Unexpected constant condition help: Update the condition to not be constant, or remove the condition entirely
+src/proto.js:2:1: warning eslint(no-prototype-builtins): do not access Object.prototype method "hasOwnProperty" from target object help: to avoid prototype pollution, use `Object.prototype.hasOwnProperty.call` instead

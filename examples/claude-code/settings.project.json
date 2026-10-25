@@ -132,6 +132,12 @@
           },
           {
             "type": "command",
+            "if": "Bash(oxlint *)",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/hush_nudge.py\" || true",
+            "timeout": 5
+          },
+          {
+            "type": "command",
             "if": "Bash(prettier *)",
             "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/hush_nudge.py\" || true",
             "timeout": 5
@@ -187,6 +193,12 @@
           {
             "type": "command",
             "if": "Bash(*/eslint *)",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/hush_nudge.py\" || true",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "if": "Bash(*/oxlint *)",
             "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/hush_nudge.py\" || true",
             "timeout": 5
           },
@@ -253,6 +265,12 @@
           {
             "type": "command",
             "if": "Bash(*/eslint)",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/hush_nudge.py\" || true",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "if": "Bash(*/oxlint)",
             "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/hush_nudge.py\" || true",
             "timeout": 5
           },

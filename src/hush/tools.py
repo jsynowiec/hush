@@ -4,7 +4,9 @@ from collections.abc import Callable, Iterator, Sequence
 from pathlib import PurePath
 
 # Tools with parsers. Keep this set consistent with `parsers.PARSERS`.
-INNER_TOOLS = frozenset({"pytest", "ruff", "mypy", "ty", "biome", "vitest", "vite", "tsc", "eslint", "prettier"})
+INNER_TOOLS = frozenset(
+    {"pytest", "ruff", "mypy", "ty", "biome", "vitest", "vite", "tsc", "eslint", "prettier", "oxlint"}
+)
 # Launchers such as `uv run pytest`, `pnpm exec vitest`, and `python -m pytest`.
 _LAUNCHERS = frozenset({"uv", "uvx", "pnpm", "npx", "bunx", "bun", "node"})
 _PYTHON = re.compile(r"^python(?:\d+(?:\.\d+)*)?$")
