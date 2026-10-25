@@ -39,11 +39,11 @@ The tool label in brackets (`(ruff)`, `(pytest)`) is guessed from the command, i
 | Option | What it does |
 | --- | --- |
 | `--name TEXT` | Describes the step in the output, for example "Lint check". |
-| `--tool TEXT` | Tool name for the label and for choosing the output parser, when it cannot be guessed. |
+| `--tool TEXT` | Sets the tool name for the label and for choosing the output parser, when it cannot be guessed. |
 | `--cwd DIR` | Runs the command in `DIR`. Reported paths and the log path stay relative to where you ran `hush`, so they make sense from the repo root. |
 | `--failfast` / `--no-failfast` | Adds the tool's own stop-at-first-failure flag. Only `pytest` (`-x`) and `vitest` (`--bail=1`) have one. Skipped if you already set a stop flag, and when the tool is not visible in the command (`pnpm run test` hides it, so put the flag in the script). Default is off. |
 | `--timeout SECONDS` | Stops the command and its child processes when time runs out. Exit code 124. Must be above 0. |
-| `--log-dir DIR` | Where full logs go. Default `.tmp/test-results`. Every run writes its own file, named after the step plus the run's UTC start time and 4 random characters, for example `pytest-unit-tests-20260512T091530-a3f9.log`, so runs of the same step never overwrite each other. |
+| `--log-dir DIR` | Sets where full logs go. Default `.tmp/test-results`. Every run writes its own file, named after the step plus the run's UTC start time and 4 random characters, for example `pytest-unit-tests-20260512T091530-a3f9.log`, so runs of the same step never overwrite each other. |
 | `--keep-logs N` | After each run, keeps the newest `N` logs in `--log-dir` (by modification time, across all steps) and deletes the rest. Default 40. At least 1. Only files named like `hush` logs are ever deleted, and the log of the current run never is. A suite with more steps than `N` loses the logs of its earliest steps, so raise `N` for it. A failure while deleting is ignored. Nothing is deleted when the log could not be written. |
 | `--max-failures N` | Failures to list before saying "and N more". Default 10. At least 1. |
 | `--max-capture-mb N` | Output kept in memory and in the log. Default 10. When a run prints more, the first half and the last half are kept, because the failure summary is usually last. At least 1. |
@@ -67,7 +67,7 @@ hush -- uv run ruff check src/retries.py
 
 With no `--name`, the pass line is `✔ PASS (pytest) passed (3 tests); 1.2s`, and the log is `.tmp/test-results/pytest-<date>T<time>-<id>.log`, unique to this run. Give `--name` to put the step in the file name, which makes the logs easier to tell apart.
 
-## Docker Compose
+## Run a tool in Docker
 
 `hush` looks through `docker exec`, `docker container exec`, `docker compose exec` and `docker-compose exec`, so the label, the pass-line counts and `--failfast` work for a tool that runs in a container:
 
@@ -78,10 +78,19 @@ hush -- docker exec web pytest tests/
 ```
 
 - `hush` closes the command's standard input, and Compose then runs `exec` without a terminal by itself (checked with Compose 5.6.0). If your version complains that the input is not a TTY, add `-T`.
-- Failure locations are found when the paths in the output are relative, which is how `pytest`, `ruff`, `mypy` and `tsc` print them. They are relative to the container's working directory. When the command sets one with `-w` or `--workdir` (say `-w /workspace/backend`), `hush` looks for the longest tail of that path that is a folder under where it runs (`workspace/backend`, then `backend`) and reports locations as `backend/tests/test_a.py:3`. A path that is not found there is looked up from where `hush` runs, which is also all that happens without `-w` or when no such folder exists, so a container directory that is a subfolder of the project needs `--cwd` or `-w`. Absolute paths under that `-w` directory, such as `/app/src/a.py` with `-w /app`, are mapped the same way, but only when they are files on the host, so a library path such as `/usr/local/lib/x.py` stays as printed. When the matched folder is only the last part of the `-w` path, absolute paths elsewhere in the same mounted tree are mapped too (`/workspace/shared/x.py` becomes `shared/x.py` for `-w /workspace/backend` and a host `backend`), if that file exists on the host and another file in the output was found in that `backend` folder (a folder that only shares its name with the end of the `-w` path proves nothing about the rest of the tree). This does not apply when the whole `-w` path matches or when `-w` has one part. Other absolute paths inside the container are not mapped, so those failures are reported without a location, and so are all absolute paths when the command has no `-w`.
+- Failure locations are found when the paths in the output are relative, which is how `pytest`, `ruff`, `mypy` and `tsc` print them. They are relative to the container's working directory.
+  - If the command sets a working directory with `-w` or `--workdir` (say `-w /workspace/backend`), `hush` looks for the longest tail of that path that is a folder under where it runs (`workspace/backend`, then `backend`) and reports locations as `backend/tests/test_a.py:3`.
+  - A path that is not found there is looked up from where `hush` runs. This is also all that happens without `-w` or when no such folder exists, so a container directory that is a subfolder of the project needs `--cwd` or `-w`.
+  - Absolute paths under the `-w` directory are mapped the same way (`/app/src/a.py` with `-w /app`), but only when they are files on the host. A library path such as `/usr/local/lib/x.py` stays as printed.
+  - When the matched folder is only the last part of the `-w` path, absolute paths elsewhere in the same mounted tree are mapped too (`/workspace/shared/x.py` becomes `shared/x.py` for `-w /workspace/backend` and a host `backend`) when the file exists on the host and another file in the output was found in the matched folder. A folder that only shares its name with the end of the `-w` path proves nothing about the rest of the tree. This does not apply when the whole `-w` path matches or when `-w` has one part.
+  - Other absolute paths inside the container are not mapped, so those failures are reported without a location. The same is true for all absolute paths when the command has no `-w`.
 - `hush` only checks that a reported path exists on the host, and the `-w` folder is a guess from the name, because the mount is not known. If the container's directory differs from the host's and both have a file with the same relative path (say `tests/test_a.py`), the report can name the host's file instead of the one that failed. Run from the matching directory, or use `--cwd`.
 - `--timeout`, Ctrl-C and SIGTERM stop the local `docker` client, not the process inside the container. Docker does not pass the signal on for a plain `exec`, so a timed-out test run can keep going in the container (reproduced with `sleep`). Stop it yourself, for example with `docker restart CONTAINER` or `docker compose restart SERVICE`, before running again.
-- The log starts with the command line. For `docker exec` and `docker compose exec`, the value of `-e NAME=value` is hidden there when the name looks like a secret (`DB_PASSWORD`, `API_KEY`, `AUTH_TOKEN` and the like), and a value of 8 or more characters is hidden everywhere in the output, as for environment variables, while a shorter one is hidden only in the command line. Values of names that do not look secret are kept, and other docker commands such as `docker run -e` are not masked. Only the outer `docker exec` is read, and `--env-file` files are not, so a secret loaded that way is not masked. `-e NAME` without a value avoids typing the secret at all.
+- The log starts with the command line. For `docker exec` and `docker compose exec`, the value of `-e NAME=value` is masked:
+  - When the name looks like a secret (`DB_PASSWORD`, `API_KEY`, `AUTH_TOKEN` and the like), a value of 8 or more characters is hidden everywhere in the output, as for environment variables. A shorter value is hidden only in the command line.
+  - Values of names that do not look secret are kept.
+  - Other docker commands, such as `docker run -e`, are not masked. Only the outer `docker exec` is read, and `--env-file` files are not, so a secret loaded that way is not masked.
+  - `-e NAME` without a value avoids typing the secret at all.
 - `hush` does not look through `docker exec -d` (it returns at once, so a pass would mean nothing) or `-i` together with `-t` (as in `-it`: there is no terminal to attach, and Docker stops with "stdin is not a terminal"). Those run as they are and are labelled `(docker)`. `-i` alone and `-t` alone are fine.
 - Only `exec` is looked through. `docker compose run`, `docker run` and `sh -c "pytest"` run as they are, labelled `(docker)` or `(sh)`.
 
@@ -130,7 +139,7 @@ Module B tests:
   ✔ PASS (vitest) Unit tests passed (1 test); 0.4s
 ```
 
-| Command | Who uses it | Behavior |
+| Command | Who uses it | Behaviour |
 | --- | --- | --- |
 | `make verify` | Coding agents | Stops at the first failing step and passes `--failfast` to every step. |
 | `make verify-all` | People | Runs every step and reports every failure. |
@@ -160,14 +169,14 @@ Tools change their output between releases, so a parser is never trusted blindly
 
 1. A parser's failures are kept only if the files they name exist under the working directory. Anything else is thrown away.
 2. If the chosen parser finds nothing valid, the other tool parsers are tried. This is what makes `pnpm run typecheck` work: the output is recognised as tsc output.
-3. If no tool parser fits, a tool-agnostic extractor takes over (`src/hush/extract.py`). It looks for `path:line` references to existing files and groups the nearby lines. Which symbols or colors the tool uses does not matter.
+3. If no tool parser fits, a tool-agnostic extractor takes over (`src/hush/extract.py`). It looks for `path:line` references to existing files and groups the nearby lines. Which symbols or colours the tool uses does not matter.
 4. If that finds no existing file either, the last 20 lines of output are shown. If the command printed nothing at all, the report says so.
 
 So a tool release that rewords its output degrades the explanation, from precise to approximate to the raw tail. It does not turn into a wrong answer or a silent pass. A tool with no parser at all (a custom script, `make`) gets steps 3 and 4.
 
-Oxlint switches itself to the one-line format the oxlint parser reads when it runs under a coding agent (it detects variables such as `CLAUDECODE`, [oxc-project/oxc#20514](https://github.com/oxc-project/oxc/issues/20514)), so `oxlint` needs no flag there, and a block-format run (CI, a plain shell) falls back to steps 3 and 4.
+Oxlint detects agent variables such as `CLAUDECODE` and switches itself to the one-line format the oxlint parser reads ([oxc-project/oxc#20514](https://github.com/oxc-project/oxc/issues/20514)). So `oxlint` needs no flag under a coding agent. A run in a plain shell or CI prints the block format, which falls back to steps 3 and 4.
 
-Colors and terminal control codes are stripped before any of this runs.
+`hush` strips colours and terminal control codes before any parsing.
 
 Known limits:
 
@@ -198,9 +207,9 @@ What it does to limit the damage:
   | 120,000 lines of 100 characters | about 120 MB |
   | 500 long lines holding 285,000 file references | about 100 MB |
   | 6 million one-character lines | about 600 MB |
-- The log is written once, after the run, already cleaned and redacted. It goes through a private temporary file (mode 0600) that replaces the log in one step. A symlink planted at the log path is replaced, not followed. Pruning (see `--keep-logs`) deletes only regular files whose names match the `hush` log pattern, and never follows symlinks or enters subdirectories. hush does not check that `--log-dir` itself is a real directory, so do not point it somewhere an untrusted repo controls.
-- Cleaning removes terminal escape codes, resolves `\r` overwrites, and removes control characters and invisible characters (zero-width, bidi controls, and the Unicode tag block that can hide text from people but not from a model). Lines are cut at 4000 characters. A line that is about to be cut is redacted first, so a long secret is not left half visible.
-- Redaction replaces known token shapes (GitHub, GitLab, AWS, Google, npm, Slack, Stripe, JWTs, bearer and basic auth, private key blocks), credentials inside URLs, and the values of environment variables named like secrets (`TOKEN`, `SECRET`, `PASSWORD`, `PASS`, `PWD`, `KEY`, `AUTH`, `DSN`, `API_KEY` and so on, including their JSON and repr forms). It covers the explanation lines, the part of a location after `::` (a test id can contain anything), the log and `--verbose` output. It is a best effort, not a guarantee.
+- The log is written once, after the run, already cleaned and redacted. It goes through a private temporary file (mode 0600) that replaces the log in one step. A symlink planted at the log path is replaced, not followed. Pruning (see `--keep-logs`) deletes only regular files whose names match the `hush` log pattern, and never follows symlinks or enters subdirectories. hush does not check that `--log-dir` itself is a real directory, so do not point it at a directory that an untrusted repo controls.
+- Cleaning strips terminal escape codes, resolves `\r` overwrites, and removes control characters and invisible characters (zero-width, bidi controls, and the Unicode tag block that can hide text from people but not from a model). Lines are cut at 4000 characters. A line that is about to be cut is redacted first, so a long secret is not left half visible.
+- Redaction replaces known token shapes (GitHub, GitLab, AWS, Google, npm, Slack, Stripe, JWTs, bearer and basic auth, private key blocks), credentials inside URLs, and the values of environment variables named like secrets (`TOKEN`, `SECRET`, `PASSWORD`, `PASS`, `PWD`, `KEY`, `AUTH`, `DSN`, `API_KEY` and so on, including their JSON and repr forms). It covers the explanation lines, the part of a location after `::` (a test id can contain anything), the log and `--verbose` output. This is a best effort and can miss a secret.
 - Redaction runs in two stages. Private key blocks and environment values that contain a newline are redacted first, over the whole output, because they span lines. Everything else is redacted after parsing, so a file name that happens to match a secret is not damaged.
 - The explanation lines come from the repo under test, so treat them as untrusted text. They are cut to 240 characters and 8 lines per failure.
 
@@ -212,7 +221,7 @@ make verify
 
 `make verify` also runs the unit tests on Python 3.12 in a separate environment (`.tmp/venv312`), so the project `.venv` stays on its own Python. To run only that step, use `make tests-py312`.
 
-`tests/fixtures` holds output captured from real runs of pytest, vitest, tsc, ruff, ty, mypy, biome, eslint, prettier and vite. To support a new tool, capture a failing run into `tests/fixtures`, add a parser in `src/hush/parsers/`, register it in `PARSERS`, and add the tool name to `INNER_TOOLS` in `src/hush/tools.py`. A test checks that the two lists match. It is optional. Without one the tool still works through the generic extractor. When a tool release breaks a parser, refresh its fixture and fix the parser. The fallbacks keep the output usable in the meantime.
+`tests/fixtures` holds output captured from real runs of pytest, vitest, tsc, ruff, ty, mypy, biome, eslint, prettier and vite. To support a new tool, capture a failing run into `tests/fixtures`, add a parser in `src/hush/parsers/`, register it in `PARSERS`, and add the tool name to `INNER_TOOLS` in `src/hush/tools.py`. A test checks that these two lists match. A parser is optional. Without one the tool still works through the generic extractor. When a tool release breaks a parser, refresh its fixture and fix the parser. The fallbacks keep the output usable in the meantime.
 
 ## License
 
